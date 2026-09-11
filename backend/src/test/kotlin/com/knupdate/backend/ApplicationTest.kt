@@ -116,6 +116,60 @@ class ApplicationTest {
         assertEquals(listOf(ConnectionSummary(bob.user.id, "Bob")), connections)
     }
 
+    @Test
+    fun activityIsStructuredAndVisibleOnlyToAConnectedUser() = testApplication {
+        environment {
+            config = MapApplicationConfig(
+                "app.environment" to "development",
+                "app.development-otp" to "9620"
+            )
+        }
+        application { module() }
+
+        val alice = client.authenticate("+919876543220", "Alice")
+        val bob = client.authenticate("+919876543221", "Bob")
+        val stranger = client.authenticate("+919876543222", "Stranger")
+
+        val codeResponse = client.post("/api/v1/connection-codes") {
+            header(HttpHeaders.Authorization, "Bearer ${bob.accessToken}")
+        }
+        val code = Json.decodeFromString<CreateConnectionCodeResponse>(codeResponse.bodyAsText())
+        client.post("/api/v1/connection-requests") {
+            header(HttpHeaders.Authorization, "Bearer ${alice.accessToken}")
+            contentType(ContentType.Application.Json)
+            setBody("""{"connectionCode":"${code.code}"}""")
+        }
+        val incomingResponse = client.get("/api/v1/connection-requests/incoming") {
+            header(HttpHeaders.Authorization, "Bearer ${bob.accessToken}")
+        }
+        val incoming = Json.decodeFromString<List<IncomingConnectionRequest>>(incomingResponse.bodyAsText())
+        client.post("/api/v1/connection-requests/${incoming.single().id}/accept") {
+            header(HttpHeaders.Authorization, "Bearer ${bob.accessToken}")
+        }
+
+        val activityResponse = client.post("/api/v1/activities") {
+            header(HttpHeaders.Authorization, "Bearer ${alice.accessToken}")
+            contentType(ContentType.Application.Json)
+            setBody(
+                """{"activity_type":"run","started_at":"2026-09-11T09:30:00+05:30","ended_at":"2026-09-11T10:00:00+05:30","quantity_type":"distance","quantity_value":5}"""
+            )
+        }
+        assertEquals(HttpStatusCode.OK, activityResponse.status)
+        val activity = Json.decodeFromString<ActivityResponse>(activityResponse.bodyAsText())
+        assertEquals("Alice completed an activity — Run · 5 km · 9:30 AM–10:00 AM", activity.renderedText)
+
+        val bobFeedResponse = client.get("/api/v1/feed") {
+            header(HttpHeaders.Authorization, "Bearer ${bob.accessToken}")
+        }
+        val bobFeed = Json.decodeFromString<List<ActivityResponse>>(bobFeedResponse.bodyAsText())
+        assertEquals(listOf(activity.id), bobFeed.map(ActivityResponse::id))
+
+        val strangerFeedResponse = client.get("/api/v1/feed") {
+            header(HttpHeaders.Authorization, "Bearer ${stranger.accessToken}")
+        }
+        assertEquals("[]", strangerFeedResponse.bodyAsText())
+    }
+
     private suspend fun io.ktor.client.HttpClient.authenticate(
         phoneNumber: String,
         displayName: String

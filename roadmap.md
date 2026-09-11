@@ -179,6 +179,8 @@ Goal: deliver the core product loop as plain text.
 
 Backend:
 
+- [x] Add development-only in-memory activity storage and feed filtering so the core loop can be exercised before PostgreSQL persistence exists.
+- [x] Add development `POST /activities`, `GET /feed`, and `GET /me/activities` endpoints.
 - [ ] Create the `activities` table with UUIDs, controlled activity type, controlled quantity fields, server timestamps, timezone, and `expires_at`.
 - [ ] Implement `POST /activities`.
 - [ ] Implement `GET /feed` for current mutual connections only, ordered strictly by `created_at DESC`.
@@ -191,14 +193,15 @@ Backend:
 
 Android:
 
-- [ ] Replace the placeholder feed with a chronological, text-only list.
+- [x] Replace the placeholder feed with a chronological, text-only list.
 - [ ] Add the empty state: `No current activity updates.`
-- [ ] Build `Add activity` with a controlled activity picker.
-- [ ] Build start/end date-time pickers.
-- [ ] Add optional unit-appropriate quantity controls for distance, pages, minutes, sessions, or none.
-- [ ] Show the exact system-rendered sentence before submission.
-- [ ] Use the action label `Notify connections`.
-- [ ] Show confirmation: `Activity shared with your current connections. It will disappear in 72 hours.`
+- [x] Add the empty state: `No current activity updates.`
+- [x] Build the development `Add activity` form with a controlled activity picker.
+- [ ] Replace the interim `HH:mm` fields with native date/time pickers.
+- [x] Add optional unit-appropriate quantity controls for distance, pages, minutes, sessions, or none.
+- [x] Show the exact system-rendered sentence before submission.
+- [x] Use the action label `Notify connections`.
+- [ ] Show the final confirmation copy after the activity is persisted and notification delivery is implemented.
 - [ ] Render only display name, activity, quantity, and time.
 - [ ] Make feed rows non-interactive; tapping does not open a detail page or action sheet.
 - [ ] Hide locally expired records on launch, foreground resume, and sync.

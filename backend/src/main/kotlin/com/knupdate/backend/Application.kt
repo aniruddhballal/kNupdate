@@ -83,6 +83,29 @@ fun Application.module() {
         }
 
         route("/api/v1") {
+            post("/activities") {
+                val user = call.devUserOrNull(developmentStore) ?: return@post
+                val request = call.receive<CreateActivityRequest>()
+                try {
+                    call.respond(developmentStore.createActivity(user.id, request))
+                } catch (error: ActivityException) {
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        ErrorResponse(error.code, error.message)
+                    )
+                }
+            }
+
+            get("/feed") {
+                val user = call.devUserOrNull(developmentStore) ?: return@get
+                call.respond(developmentStore.feedFor(user.id))
+            }
+
+            get("/me/activities") {
+                val user = call.devUserOrNull(developmentStore) ?: return@get
+                call.respond(developmentStore.ownActivitiesFor(user.id))
+            }
+
             get("/connections") {
                 val user = call.devUserOrNull(developmentStore) ?: return@get
                 call.respond(developmentStore.listConnections(user.id))

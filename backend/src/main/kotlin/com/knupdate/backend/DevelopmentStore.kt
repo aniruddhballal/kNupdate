@@ -2,7 +2,12 @@ package com.knupdate.backend
 
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
+import java.time.Duration
 import java.time.Instant
+import java.time.OffsetDateTime
+import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
+import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -16,6 +21,7 @@ class DevelopmentStore(
     private val connectionCodes = ConcurrentHashMap<String, ConnectionCode>()
     private val requests = ConcurrentHashMap<String, StoredConnectionRequest>()
     private val connections = ConcurrentHashMap.newKeySet<String>()
+    private val activities = ConcurrentHashMap<String, StoredActivity>()
 
     fun requestOtp(phoneNumber: String): RequestOtpResponse {
         val challengeId = UUID.randomUUID().toString()
@@ -145,6 +151,107 @@ class DevelopmentStore(
         }
     }
 
+    fun createActivity(authorId: String, request: CreateActivityRequest): ActivityResponse {
+        purgeExpiredActivities()
+        val activityLabel = ACTIVITY_LABELS[request.activityType]
+            ?: throw ActivityException("invalid_activity_type", "Choose an activity from the approved list.")
+        val startedAt = parseDateTime(request.startedAt)
+        val endedAt = parseDateTime(request.endedAt)
+        if (!endedAt.isAfter(startedAt)) {
+            throw ActivityException("invalid_time_range", "End time must be after start time.")
+        }
+        if (Duration.between(startedAt, endedAt) > MAX_ACTIVITY_DURATION) {
+            throw ActivityException("activity_too_long", "An activity cannot be longer than 24 hours.")
+        }
+
+        val quantity = validateQuantity(request.quantityType, request.quantityValue)
+        val createdAt = Instant.now()
+        val storedActivity = StoredActivity(
+            id = UUID.randomUUID().toString(),
+            authorId = authorId,
+            activityType = request.activityType,
+            startedAt = startedAt,
+            endedAt = endedAt,
+            quantityType = request.quantityType,
+            quantityValue = quantity?.first,
+            quantityUnit = quantity?.second,
+            createdAt = createdAt,
+            expiresAt = createdAt.plus(ACTIVITY_EXPIRY)
+        )
+        activities[storedActivity.id] = storedActivity
+        return storedActivity.toResponse(activityLabel)
+    }
+
+    fun feedFor(userId: String): List<ActivityResponse> {
+        purgeExpiredActivities()
+        return activities.values
+            .filter { activity ->
+                activity.authorId != userId &&
+                    connections.contains(canonicalPair(userId, activity.authorId))
+            }
+            .sortedByDescending { it.createdAt }
+            .map { it.toResponse(ACTIVITY_LABELS.getValue(it.activityType)) }
+    }
+
+    fun ownActivitiesFor(userId: String): List<ActivityResponse> {
+        purgeExpiredActivities()
+        return activities.values
+            .filter { it.authorId == userId }
+            .sortedByDescending { it.createdAt }
+            .map { it.toResponse(ACTIVITY_LABELS.getValue(it.activityType)) }
+    }
+
+    private fun validateQuantity(type: String?, value: Double?): Pair<Double, String>? {
+        if (type == null && value == null) return null
+        if (type == null || value == null || value <= 0.0) {
+            throw ActivityException("invalid_quantity", "Quantity must use an approved unit and a positive value.")
+        }
+        val maximum = QUANTITY_LIMITS[type]
+            ?: throw ActivityException("invalid_quantity_type", "Choose an approved quantity unit.")
+        if (value > maximum) {
+            throw ActivityException("quantity_too_large", "That quantity is above the allowed limit.")
+        }
+        return value to QUANTITY_UNITS.getValue(type)
+    }
+
+    private fun parseDateTime(value: String): OffsetDateTime =
+        try {
+            OffsetDateTime.parse(value)
+        } catch (_: DateTimeParseException) {
+            throw ActivityException("invalid_datetime", "Use a valid date and time.")
+        }
+
+    private fun purgeExpiredActivities() {
+        val now = Instant.now()
+        activities.entries.removeIf { it.value.expiresAt <= now }
+    }
+
+    private fun StoredActivity.toResponse(activityLabel: String): ActivityResponse {
+        val author = users[authorId]
+            ?: throw ActivityException("user_not_found", "The activity owner does not exist.")
+        val quantityText = quantityValue?.let { " · ${formatQuantity(it)} $quantityUnit" } ?: ""
+        val timeText = "${formatTime(startedAt)}–${formatTime(endedAt)}"
+        return ActivityResponse(
+            id = id,
+            activityType = activityType,
+            startedAt = startedAt.toString(),
+            endedAt = endedAt.toString(),
+            quantityType = quantityType,
+            quantityValue = quantityValue,
+            quantityUnit = quantityUnit,
+            createdAt = createdAt.toString(),
+            expiresAt = expiresAt.toString(),
+            authorDisplayName = author.displayName,
+            renderedText = "${author.displayName} completed an activity — $activityLabel$quantityText · $timeText"
+        )
+    }
+
+    private fun formatTime(value: OffsetDateTime): String =
+        value.format(DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH))
+
+    private fun formatQuantity(value: Double): String =
+        if (value % 1.0 == 0.0) value.toLong().toString() else "%.2f".format(Locale.ENGLISH, value)
+
     private fun pendingRequestForTarget(targetId: String, requestId: String): StoredConnectionRequest {
         val request = requests[requestId]
         if (request == null || request.targetId != targetId || request.status != RequestStatus.PENDING) {
@@ -205,6 +312,55 @@ data class StoredConnectionRequest(
 )
 
 enum class RequestStatus { PENDING, ACCEPTED, DECLINED }
+
+class ActivityException(val code: String, override val message: String) : RuntimeException(message)
+
+private data class StoredActivity(
+    val id: String,
+    val authorId: String,
+    val activityType: String,
+    val startedAt: OffsetDateTime,
+    val endedAt: OffsetDateTime,
+    val quantityType: String?,
+    val quantityValue: Double?,
+    val quantityUnit: String?,
+    val createdAt: Instant,
+    val expiresAt: Instant
+)
+
+private val ACTIVITY_LABELS = mapOf(
+    "run" to "Run",
+    "walk" to "Walk",
+    "cycle" to "Cycle",
+    "swim" to "Swim",
+    "strength_training" to "Strength training",
+    "yoga" to "Yoga",
+    "sport_game" to "Sport / game",
+    "study" to "Study",
+    "read" to "Read",
+    "work" to "Work",
+    "cook" to "Cook",
+    "travel" to "Travel",
+    "rest" to "Rest",
+    "other" to "Other structured activity"
+)
+
+private val QUANTITY_LIMITS = mapOf(
+    "distance" to 1000.0,
+    "pages" to 100_000.0,
+    "minutes" to 1_440.0,
+    "sessions" to 100.0
+)
+
+private val QUANTITY_UNITS = mapOf(
+    "distance" to "km",
+    "pages" to "pages",
+    "minutes" to "minutes",
+    "sessions" to "sessions"
+)
+
+private val MAX_ACTIVITY_DURATION: Duration = Duration.ofHours(24)
+private val ACTIVITY_EXPIRY: Duration = Duration.ofHours(72)
 
 private const val CHALLENGE_TTL_SECONDS = 300L
 private const val SESSION_TTL_SECONDS = 900L
