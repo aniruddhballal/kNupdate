@@ -1,4 +1,4 @@
-package com.aniruddhballal.fortyfour.ui.theme
+package com.knupdate.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

@@ -1,4 +1,4 @@
-package com.aniruddhballal.fortyfour
+package com.knupdate.app
 
 import org.junit.Test
 

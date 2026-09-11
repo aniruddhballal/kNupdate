@@ -19,6 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Forty Four"
+rootProject.name = "kNupdate"
 include(":app")
- 

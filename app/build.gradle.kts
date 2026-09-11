@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.aniruddhballal.fortyfour"
+    namespace = "com.knupdate.app"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.aniruddhballal.fortyfour"
+        applicationId = "com.knupdate.app"
         minSdk = 24
         targetSdk = 36
         versionCode = 1
