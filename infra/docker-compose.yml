@@ -8,7 +8,7 @@ services:
       POSTGRES_USER: knupdate
       POSTGRES_PASSWORD: change-me-local-only
     ports:
-      - "5432:5432"
+      - "55432:5432"
     volumes:
       - knupdate-postgres-data:/var/lib/postgresql/data
     healthcheck:
