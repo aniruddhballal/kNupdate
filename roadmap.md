@@ -102,6 +102,7 @@ Tasks:
 - [x] Create the Ktor service with health checking, environment-based configuration, structured error responses, and TLS-ready deployment settings.
 - [x] Add a development-only fixed OTP (`9620`) behind an environment guard; production OTP delivery remains unconfigured.
 - [x] Add the initial PostgreSQL migration and local development database configuration.
+- [x] Add an opt-in PostgreSQL startup migration runner; keep in-memory mode as the default for development tests.
 - [x] Add a minimal repository/network layer on Android using Ktor Client.
 - [ ] Add token storage using Android Keystore-backed encrypted storage.
 - [ ] Establish test fixtures for one user, one connection, and one activity.

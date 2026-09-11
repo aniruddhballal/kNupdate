@@ -4,6 +4,8 @@ The backend will be a small Kotlin/Ktor service backed by PostgreSQL. It is resp
 
 The current connection and activity implementations are intentionally in-memory development slices. They use distinct development identities, short-lived hashed codes, bearer sessions, symmetric connection records, structured validation, and the two-mutual rule. When `SEED_USER_IDS` is empty in development, the code path permits bootstrap connections so the first local users can test the flow. The PostgreSQL schema is now checked in; the next persistence step is to replace this store with repositories and an explicit owner-controlled seed allowlist before production.
 
+Set `PERSISTENCE_MODE=postgres` and a PostgreSQL `DATABASE_URL` to apply the checked-in migration at startup. The current request handlers still use the development store; repository-backed reads and writes are the next step.
+
 Planned implementation order:
 
 1. Ktor service and environment configuration.

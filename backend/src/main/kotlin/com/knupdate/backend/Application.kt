@@ -23,6 +23,12 @@ import kotlinx.serialization.json.Json
 fun main(args: Array<String>): Unit = EngineMain.main(args)
 
 fun Application.module() {
+    if (persistenceMode() == "postgres") {
+        val jdbcUrl = environment.config.propertyOrNull("database.jdbc-url")?.getString()
+            ?: error("DATABASE_URL is required when PERSISTENCE_MODE=postgres.")
+        DatabaseMigrator(jdbcUrl).migrate()
+    }
+
     val developmentStore = DevelopmentStore(
         otp = developmentOtp(),
         seedUserIds = configuredSeedUserIds()
@@ -205,6 +211,9 @@ private fun Application.configuredSeedUserIds(): Set<String> =
         ?.filter(String::isNotEmpty)
         ?.toSet()
         ?: emptySet()
+
+private fun Application.persistenceMode(): String =
+    environment.config.propertyOrNull("database.persistence-mode")?.getString() ?: "memory"
 
 private suspend fun ApplicationCall.devUserOrNull(store: DevelopmentStore): DevUser? {
     val authorization = request.header(HttpHeaders.Authorization)
