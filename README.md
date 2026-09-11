@@ -43,11 +43,25 @@ The production build will be a manually installed, signed APK. It will not be su
 
 ## Backend development
 
-The backend is planned as a small Kotlin/Ktor service backed by PostgreSQL. It will be added after the API and privacy contracts in `docs/` are reviewed against the product constitution.
+The backend is a small Kotlin/Ktor service backed by PostgreSQL. During local development only, the OTP boundary uses the fixed code `9620` so the app can be built and tested without paying for SMS delivery. Start local development with `APP_ENV=development`; the server defaults to production behaviour when that variable is absent, so the fixed code cannot activate accidentally.
 
 Production configuration must be provided through environment variables or a secret manager. Never commit real OTP credentials, FCM credentials, phone numbers, database credentials, signing keys, APK user data, or database backups.
 
-See [infra/.env.example](infra/.env.example) for the names of planned configuration values.
+See [infra/.env.example](infra/.env.example) for the names of configuration values. A production OTP provider will incur provider-specific SMS and/or verification charges; its choice is intentionally deferred until the local product loop works.
+
+Run the development backend with the fixed OTP:
+
+```sh
+APP_ENV=development APP_HOST=0.0.0.0 DEVELOPMENT_OTP=9620 ./gradlew :backend:run
+```
+
+The Android debug build defaults to `http://10.0.2.2:8080`, which reaches a backend running on the host machine from an Android emulator. For a physical phone, build with the computer's LAN address instead:
+
+```sh
+./gradlew assembleDebug -PKNUPDATE_API_BASE_URL=http://192.168.1.10:8080
+```
+
+The phone and computer must be on the same network, the backend must bind to `APP_HOST=0.0.0.0`, and the firewall must allow the port. The debug manifest allows local HTTP only; release builds must use an HTTPS backend.
 
 ## Privacy and deletion
 

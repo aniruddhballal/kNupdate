@@ -21,3 +21,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "kNupdate"
 include(":app")
+include(":backend")

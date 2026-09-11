@@ -98,10 +98,11 @@ Goal: prove the Android client and backend can communicate without building the 
 Tasks:
 
 - [x] Replace the placeholder Compose screen with the initial navigation shell: `Feed`, `Add`, and `Profile/Settings`.
-- [ ] Add a small, explicit app state model for signed-out, onboarding, signed-in, loading, empty, and error states.
-- [ ] Create the Ktor service with health checking, environment-based configuration, structured error responses, and TLS-ready deployment settings.
+- [x] Add a small, explicit app state model for signed-out, onboarding, signed-in, loading, empty, and error states.
+- [x] Create the Ktor service with health checking, environment-based configuration, structured error responses, and TLS-ready deployment settings.
+- [x] Add a development-only fixed OTP (`9620`) behind an environment guard; production OTP delivery remains unconfigured.
 - [ ] Add PostgreSQL migrations and a local development database.
-- [ ] Add a minimal repository/network layer on Android using Retrofit/OkHttp or Ktor Client.
+- [x] Add a minimal repository/network layer on Android using Ktor Client.
 - [ ] Add token storage using Android Keystore-backed encrypted storage.
 - [ ] Establish test fixtures for one user, one connection, and one activity.
 
@@ -117,8 +118,8 @@ Goal: allow a real person to enter the product with the minimum identity data.
 
 Backend:
 
-- [ ] Implement `POST /auth/request-otp`.
-- [ ] Implement `POST /auth/verify-otp`.
+- [x] Implement development `POST /auth/request-otp`.
+- [x] Implement development `POST /auth/verify-otp`.
 - [ ] Hash phone numbers before database storage; never return them through the API.
 - [ ] Issue short-lived access tokens and refresh tokens.
 - [ ] Implement `POST /auth/sign-out`.
@@ -128,11 +129,11 @@ Backend:
 
 Android:
 
-- [ ] Build the minimal purpose statement screen.
-- [ ] Build display-name entry.
-- [ ] Build phone-number entry and OTP verification.
-- [ ] Explain the deliberate non-features: no public account, followers, likes, messages, or archive.
-- [ ] Land a new user on an empty feed.
+- [x] Build the minimal purpose statement screen.
+- [x] Build display-name entry.
+- [x] Build phone-number entry and OTP verification.
+- [x] Explain the deliberate non-features: no public account, followers, likes, messages, or archive.
+- [x] Land a new development-authenticated user on an empty feed.
 - [ ] Avoid contact, SMS, storage, camera, microphone, location, fitness, and photo permissions.
 
 Exit criteria:
