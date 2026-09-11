@@ -147,6 +147,7 @@ Goal: create the private graph without turning it into a social discovery system
 
 Backend data and rules:
 
+- [x] Add a development-only in-memory connection service so the first end-to-end connection flow can be exercised before PostgreSQL persistence exists.
 - [ ] Create `connections` with a canonical pair constraint so a relationship exists once.
 - [ ] Create `connection_requests` with pending/accepted/declined status and cleanup expiry.
 - [ ] Create `connection_codes` storing only a hash, expiry, and used timestamp.
@@ -161,9 +162,9 @@ Backend data and rules:
 
 Android:
 
-- [ ] Build the private Connections list with names only.
-- [ ] Build code creation/entry without search, contact import, suggestions, or mutuals browsing.
-- [ ] Show the target only the requester display name and shared-mutual count.
+- [x] Build the private Connections list with names only.
+- [x] Build code creation/entry without search, contact import, suggestions, or mutuals browsing.
+- [x] Show the target only the requester display name and shared-mutual count.
 - [ ] Add explicit accept/decline and remove-connection confirmation states.
 
 Exit criteria:

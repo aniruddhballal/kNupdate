@@ -20,6 +20,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -30,8 +31,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.knupdate.app.auth.ApiClient
+import com.knupdate.app.auth.ConnectionRepository
+import com.knupdate.app.auth.ConnectionSummary
 import com.knupdate.app.auth.AuthRepository
 import com.knupdate.app.auth.AuthSession
+import com.knupdate.app.auth.IncomingConnectionRequest
 import com.knupdate.app.ui.theme.KNupdateTheme
 import kotlinx.coroutines.launch
 
@@ -238,6 +242,34 @@ private fun AuthenticatedShell(
     onSignOut: () -> Unit
 ) {
     var destination by remember { mutableStateOf(AppDestination.FEED) }
+    val connectionRepository = remember {
+        ConnectionRepository(ApiClient.httpClient, BuildConfig.API_BASE_URL)
+    }
+    val scope = rememberCoroutineScope()
+    var connections by remember { mutableStateOf<List<ConnectionSummary>>(emptyList()) }
+    var incomingRequests by remember { mutableStateOf<List<IncomingConnectionRequest>>(emptyList()) }
+    var generatedCode by remember { mutableStateOf<String?>(null) }
+    var connectionCodeInput by remember { mutableStateOf("") }
+    var connectionError by remember { mutableStateOf<String?>(null) }
+    var isConnectionsLoading by remember { mutableStateOf(false) }
+
+    suspend fun loadConnections() {
+        isConnectionsLoading = true
+        connectionError = null
+        connectionRepository.listConnections(session).fold(
+            onSuccess = { connections = it },
+            onFailure = { connectionError = it.message ?: "Unable to load connections." }
+        )
+        connectionRepository.incomingRequests(session).fold(
+            onSuccess = { incomingRequests = it },
+            onFailure = { connectionError = it.message ?: "Unable to load connection requests." }
+        )
+        isConnectionsLoading = false
+    }
+
+    LaunchedEffect(session.accessToken) {
+        loadConnections()
+    }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -270,8 +302,68 @@ private fun AuthenticatedShell(
             when (destination) {
                 AppDestination.FEED -> FeedPlaceholder()
                 AppDestination.ADD -> AddActivityPlaceholder()
-                AppDestination.PROFILE -> ProfilePlaceholder(
+                AppDestination.PROFILE -> ProfileScreen(
                     displayName = session.user.displayName,
+                    connections = connections,
+                    incomingRequests = incomingRequests,
+                    generatedCode = generatedCode,
+                    connectionCodeInput = connectionCodeInput,
+                    connectionError = connectionError,
+                    isLoading = isConnectionsLoading,
+                    onConnectionCodeInputChange = { connectionCodeInput = it },
+                    onCreateCode = {
+                        scope.launch {
+                            connectionRepository.createCode(session).fold(
+                                onSuccess = { generatedCode = it.code },
+                                onFailure = {
+                                    connectionError = it.message ?: "Unable to create a connection code."
+                                }
+                            )
+                        }
+                    },
+                    onRequestConnection = {
+                        scope.launch {
+                            connectionRepository.requestConnection(session, connectionCodeInput.trim()).fold(
+                                onSuccess = {
+                                    connectionCodeInput = ""
+                                    connectionError = "Connection request sent."
+                                },
+                                onFailure = {
+                                    connectionError = it.message ?: "Unable to send the connection request."
+                                }
+                            )
+                        }
+                    },
+                    onAcceptRequest = { requestId ->
+                        scope.launch {
+                            connectionRepository.acceptRequest(session, requestId).fold(
+                                onSuccess = { loadConnections() },
+                                onFailure = {
+                                    connectionError = it.message ?: "Unable to accept the request."
+                                }
+                            )
+                        }
+                    },
+                    onDeclineRequest = { requestId ->
+                        scope.launch {
+                            connectionRepository.declineRequest(session, requestId).fold(
+                                onSuccess = { loadConnections() },
+                                onFailure = {
+                                    connectionError = it.message ?: "Unable to decline the request."
+                                }
+                            )
+                        }
+                    },
+                    onRemoveConnection = { connectionId ->
+                        scope.launch {
+                            connectionRepository.removeConnection(session, connectionId).fold(
+                                onSuccess = { loadConnections() },
+                                onFailure = {
+                                    connectionError = it.message ?: "Unable to remove the connection."
+                                }
+                            )
+                        }
+                    },
                     onSignOut = onSignOut
                 )
             }
@@ -311,19 +403,90 @@ private fun AddActivityPlaceholder() {
 }
 
 @Composable
-private fun ProfilePlaceholder(displayName: String, onSignOut: () -> Unit) {
+private fun ProfileScreen(
+    displayName: String,
+    connections: List<ConnectionSummary>,
+    incomingRequests: List<IncomingConnectionRequest>,
+    generatedCode: String?,
+    connectionCodeInput: String,
+    connectionError: String?,
+    isLoading: Boolean,
+    onConnectionCodeInputChange: (String) -> Unit,
+    onCreateCode: () -> Unit,
+    onRequestConnection: () -> Unit,
+    onAcceptRequest: (String) -> Unit,
+    onDeclineRequest: (String) -> Unit,
+    onRemoveConnection: (String) -> Unit,
+    onSignOut: () -> Unit
+) {
     Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.Start,
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(
             text = displayName,
             style = MaterialTheme.typography.titleLarge
         )
-        Text(
-            text = "Profile and settings will be connected next.",
-            style = MaterialTheme.typography.bodyMedium
+
+        Text("Connections", style = MaterialTheme.typography.titleMedium)
+        if (isLoading) {
+            Text("Loading connections…", style = MaterialTheme.typography.bodyMedium)
+        } else if (connections.isEmpty()) {
+            Text("No current connections.", style = MaterialTheme.typography.bodyMedium)
+        } else {
+            connections.forEach { connection ->
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(connection.displayName)
+                    TextButton(onClick = { onRemoveConnection(connection.id) }) {
+                        Text("Remove")
+                    }
+                }
+            }
+        }
+
+        TextButton(onClick = onCreateCode) {
+            Text("Create connection code")
+        }
+        generatedCode?.let { code ->
+            Text("Give this code directly to the person you want to connect with:")
+            Text(code, style = MaterialTheme.typography.titleMedium)
+        }
+
+        OutlinedTextField(
+            value = connectionCodeInput,
+            onValueChange = onConnectionCodeInputChange,
+            label = { Text("Connection code") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
         )
+        Button(
+            onClick = onRequestConnection,
+            enabled = connectionCodeInput.isNotBlank()
+        ) {
+            Text("Request connection")
+        }
+
+        if (incomingRequests.isNotEmpty()) {
+            Text("Incoming requests", style = MaterialTheme.typography.titleMedium)
+            incomingRequests.forEach { request ->
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(request.requesterDisplayName)
+                    Text("Shared connections: ${request.sharedMutualCount}")
+                    TextButton(onClick = { onAcceptRequest(request.id) }) {
+                        Text("Accept")
+                    }
+                    TextButton(onClick = { onDeclineRequest(request.id) }) {
+                        Text("Decline")
+                    }
+                }
+            }
+        }
+
+        connectionError?.let { message ->
+            Text(message, color = MaterialTheme.colorScheme.error)
+        }
+
         TextButton(onClick = onSignOut) {
             Text("Sign out")
         }

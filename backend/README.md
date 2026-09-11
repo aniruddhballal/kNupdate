@@ -2,6 +2,8 @@
 
 The backend will be a small Kotlin/Ktor service backed by PostgreSQL. It is responsible for authentication, symmetric connection rules, activity visibility, push-recipient selection, and hard deletion.
 
+The current connection implementation is intentionally an in-memory development slice. It uses distinct development identities, short-lived hashed codes, bearer sessions, symmetric connection records, and the two-mutual rule. When `SEED_USER_IDS` is empty in development, the code path permits bootstrap connections so the first local users can test the flow. Before production, replace this store with PostgreSQL and an explicit owner-controlled seed allowlist.
+
 Planned implementation order:
 
 1. Ktor service and environment configuration.
