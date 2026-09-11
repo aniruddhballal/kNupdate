@@ -101,7 +101,7 @@ Tasks:
 - [x] Add a small, explicit app state model for signed-out, onboarding, signed-in, loading, empty, and error states.
 - [x] Create the Ktor service with health checking, environment-based configuration, structured error responses, and TLS-ready deployment settings.
 - [x] Add a development-only fixed OTP (`9620`) behind an environment guard; production OTP delivery remains unconfigured.
-- [ ] Add PostgreSQL migrations and a local development database.
+- [x] Add the initial PostgreSQL migration and local development database configuration.
 - [x] Add a minimal repository/network layer on Android using Ktor Client.
 - [ ] Add token storage using Android Keystore-backed encrypted storage.
 - [ ] Establish test fixtures for one user, one connection, and one activity.
@@ -148,6 +148,7 @@ Goal: create the private graph without turning it into a social discovery system
 Backend data and rules:
 
 - [x] Add a development-only in-memory connection service so the first end-to-end connection flow can be exercised before PostgreSQL persistence exists.
+- [x] Define the PostgreSQL schema for users, devices, connections, requests, codes, and activities.
 - [ ] Create `connections` with a canonical pair constraint so a relationship exists once.
 - [ ] Create `connection_requests` with pending/accepted/declined status and cleanup expiry.
 - [ ] Create `connection_codes` storing only a hash, expiry, and used timestamp.
