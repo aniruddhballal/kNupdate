@@ -74,16 +74,16 @@ Goal: make the product and technical boundaries explicit before building screens
 
 Tasks:
 
-- [ ] Add `README.md` with the product purpose, local setup, build commands, release approach, and explicit non-goals.
-- [ ] Add `LICENSE` and strengthen `.gitignore` for keystores, secrets, `.env` files, APKs, build output, raw phone data, and database dumps.
-- [ ] Create the intended top-level structure for backend, infrastructure, and docs, while preserving the existing Android module unless there is a strong reason to move it.
-- [ ] Write the API contract for authentication, profile, devices, connections, and activities.
-- [ ] Write the privacy/deletion model and threat notes before data is persisted.
+- [x] Add `README.md` with the product purpose, local setup, build commands, release approach, and explicit non-goals.
+- [x] Add `LICENSE` and strengthen `.gitignore` for keystores, secrets, `.env` files, APKs, build output, raw phone data, and database dumps.
+- [x] Create the intended top-level structure for backend, infrastructure, and docs, while preserving the existing Android module unless there is a strong reason to move it.
+- [x] Write the API contract for authentication, profile, devices, connections, and activities.
+- [x] Write the privacy/deletion model and threat notes before data is persisted.
 - [ ] Decide deployment target, OTP provider, FCM project, PostgreSQL hosting, domain/TLS approach, and secret storage.
 - [ ] Define the supported Android version range and set the release package/version policy.
-- [ ] Define the single global expiry configuration as 72 hours.
-- [ ] Define the controlled activity taxonomy and quantity rules in source-controlled configuration.
-- [ ] Define error states and intentionally sparse UI language.
+- [x] Define the single global expiry configuration as 72 hours.
+- [x] Define the controlled activity taxonomy and quantity rules in source-controlled configuration.
+- [x] Define initial error-state and intentionally sparse UI direction in the Android shell and repository docs.
 
 Exit criteria:
 
@@ -97,7 +97,7 @@ Goal: prove the Android client and backend can communicate without building the 
 
 Tasks:
 
-- [ ] Replace the placeholder Compose screen with the initial navigation shell: `Feed`, `Add`, and `Profile/Settings`.
+- [x] Replace the placeholder Compose screen with the initial navigation shell: `Feed`, `Add`, and `Profile/Settings`.
 - [ ] Add a small, explicit app state model for signed-out, onboarding, signed-in, loading, empty, and error states.
 - [ ] Create the Ktor service with health checking, environment-based configuration, structured error responses, and TLS-ready deployment settings.
 - [ ] Add PostgreSQL migrations and a local development database.
@@ -439,4 +439,3 @@ v1 is done only when:
 After v1, only changes that preserve the product constitution should be considered, such as security patches, compatibility fixes, dependency updates, or a narrowly scoped bug fix required to keep the existing flow working.
 
 Do not add features merely because they improve convenience, discovery, retention, social interaction, status signalling, data collection, monetisation, or scale. If the app stops working because the platform or dependencies change, a small maintenance fix is acceptable; redesigning it into a general social product is not.
-
