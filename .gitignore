@@ -14,3 +14,29 @@
 .cxx
 local.properties
 .idea/
+
+# Secrets and environment files
+.env
+.env.*
+!.env.example
+*.keystore
+*.jks
+*.p12
+*.pem
+*.key
+
+# Release and local data
+*.apk
+*.aab
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+/backend/build
+/backend/.gradle
+/infra/.terraform
+/infra/terraform.tfstate*
+
+# Local development data
+/backend/data
+/backend/logs
