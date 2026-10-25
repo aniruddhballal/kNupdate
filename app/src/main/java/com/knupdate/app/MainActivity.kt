@@ -3,6 +3,13 @@ package com.knupdate.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -59,6 +66,7 @@ import java.util.Locale
 import com.knupdate.app.ui.theme.KNupdateTheme
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import kotlinx.coroutines.delay
 
 private val Ink = Color(0xFF000000)
 private val Paper = Color(0xFFFFFFFF)
@@ -204,7 +212,7 @@ private fun LocalActivityScreen() {
     var startMinutes by rememberSaveable { mutableStateOf(defaultTime) }
     var endMinutes by rememberSaveable { mutableStateOf(defaultTime) }
     var timeError by rememberSaveable { mutableStateOf<String?>(null) }
-    var confirmationVisible by rememberSaveable { mutableStateOf(false) }
+    var updateButtonSuccess by rememberSaveable { mutableStateOf(false) }
     var timePickerIsStart by remember { mutableStateOf<Boolean?>(null) }
     var updates by remember { mutableStateOf(loadUpdates(preferences)) }
 
@@ -216,6 +224,13 @@ private fun LocalActivityScreen() {
         startMinutes = now
         endMinutes = now
         timeError = null
+    }
+
+    LaunchedEffect(updateButtonSuccess) {
+        if (updateButtonSuccess) {
+            delay(850)
+            updateButtonSuccess = false
+        }
     }
 
     fun chooseTime(isStart: Boolean) {
@@ -243,8 +258,13 @@ private fun LocalActivityScreen() {
         )
         updates = listOf(update) + updates
         saveUpdates(preferences, updates)
-        confirmationVisible = true
+        selectedActivityId = ACTIVITY_OPTIONS.first().id
+        selectedBody = ACTIVITY_OPTIONS.first().bodies.first()
+        val resetNow = currentTimeMinutes()
+        startMinutes = resetNow
+        endMinutes = resetNow
         timeError = null
+        updateButtonSuccess = true
     }
 
     Column(
@@ -293,15 +313,11 @@ private fun LocalActivityScreen() {
             }
             timeError?.let { Text(text = it, color = Color(0xFFB3261E), fontSize = 13.sp) }
 
-            BlackButton(
-                label = "kNupdate",
+            UpdateButton(
+                success = updateButtonSuccess,
                 onClick = ::saveUpdate,
                 modifier = Modifier.fillMaxWidth()
             )
-
-            if (confirmationVisible) {
-                ConfirmationCard(onDismiss = { confirmationVisible = false })
-            }
 
         }
     }
@@ -567,6 +583,41 @@ private fun BlackButton(label: String, enabled: Boolean = true, onClick: () -> U
 }
 
 @Composable
+private fun UpdateButton(success: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Button(
+        onClick = onClick,
+        enabled = !success,
+        modifier = modifier
+            .height(48.dp)
+            .border(1.dp, Ink, RoundedCornerShape(0.dp)),
+        shape = RoundedCornerShape(0.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Ink,
+            contentColor = Paper,
+            disabledContainerColor = Ink,
+            disabledContentColor = Paper
+        )
+    ) {
+        AnimatedContent(
+            targetState = success,
+            transitionSpec = {
+                (slideInHorizontally(animationSpec = tween(180)) { it } + fadeIn(tween(120))) togetherWith
+                    (slideOutHorizontally(animationSpec = tween(180)) { -it } + fadeOut(tween(120)))
+            },
+            label = "update button content transition"
+        ) { complete ->
+            Text(
+                text = if (complete) "✓" else "kNupdate",
+                color = Paper,
+                fontSize = if (complete) 15.sp else 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = if (complete) 0.sp else 0.8.sp
+            )
+        }
+    }
+}
+
+@Composable
 private fun LocalTextField(value: String, onValueChange: (String) -> Unit, placeholder: String, onDone: () -> Unit) {
     BasicTextField(
         value = value,
@@ -584,51 +635,6 @@ private fun LocalTextField(value: String, onValueChange: (String) -> Unit, place
             innerTextField()
         }
     )
-}
-
-@Composable
-private fun ConfirmationCard(onDismiss: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(ActiveRow)
-            .border(1.dp, Ink, RoundedCornerShape(0.dp))
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Text(text = "UPDATED", color = Ink, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-        Text(text = "No connections yet.", color = Ink, fontSize = 13.sp)
-        OutlinedButton(
-            onClick = onDismiss,
-            shape = RoundedCornerShape(0.dp),
-            border = BorderStroke(1.dp, Ink),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = Ink)
-        ) {
-            Text(text = "DISMISS", fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.7.sp)
-        }
-    }
-}
-
-@Composable
-private fun LocalUpdateRow(update: LocalUpdate) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .drawBehind {
-                drawLine(
-                    color = Rule,
-                    start = Offset(0f, size.height),
-                    end = Offset(size.width, size.height),
-                    strokeWidth = 1.dp.toPx()
-                )
-            }
-            .padding(vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        Text(text = update.title, color = Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-        Text(text = update.body, color = Muted, fontSize = 13.sp)
-        Text(text = update.timeText(), color = Muted, fontSize = 11.sp, letterSpacing = 0.4.sp)
-    }
 }
 
 private enum class TimeMode { SINGLE, RANGE }
