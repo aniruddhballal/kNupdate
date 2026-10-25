@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -67,6 +69,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         window.statusBarColor = android.graphics.Color.WHITE
         window.navigationBarColor = android.graphics.Color.WHITE
+        window.decorView.systemUiVisibility =
+            android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or
+                android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
         setContent {
             KNupdateTheme {
                 KNupdateApp()
@@ -139,6 +144,8 @@ private fun NameSetupScreen(onSave: (String) -> Unit) {
         modifier = Modifier
             .fillMaxSize()
             .background(Paper)
+            .statusBarsPadding()
+            .navigationBarsPadding()
             .padding(horizontal = 20.dp),
         horizontalAlignment = Alignment.Start
     ) {
@@ -257,6 +264,8 @@ private fun LocalActivityScreen(displayName: String) {
         modifier = Modifier
             .fillMaxSize()
             .background(Paper)
+            .statusBarsPadding()
+            .navigationBarsPadding()
             .padding(horizontal = 20.dp)
     ) {
         ScreenHeader(label = "LOCAL ACTIVITY LEDGER")
