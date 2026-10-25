@@ -1,8 +1,6 @@
 package com.knupdate.app
 
-import android.app.TimePickerDialog
 import android.os.Bundle
-import android.text.format.DateFormat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -49,12 +47,18 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.Surface
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import com.knupdate.app.ui.theme.KNupdateTheme
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 
 private val Ink = Color(0xFF000000)
 private val Paper = Color(0xFFFFFFFF)
@@ -201,6 +205,7 @@ private fun LocalActivityScreen() {
     var endMinutes by rememberSaveable { mutableStateOf(defaultTime) }
     var timeError by rememberSaveable { mutableStateOf<String?>(null) }
     var confirmationVisible by rememberSaveable { mutableStateOf(false) }
+    var timePickerIsStart by remember { mutableStateOf<Boolean?>(null) }
     var updates by remember { mutableStateOf(loadUpdates(preferences)) }
 
     val selectedActivity = ACTIVITY_OPTIONS.first { it.id == selectedActivityId }
@@ -214,26 +219,7 @@ private fun LocalActivityScreen() {
     }
 
     fun chooseTime(isStart: Boolean) {
-        val currentValue = if (isStart) startMinutes else endMinutes
-        val initial = minutesToLocalTime(currentValue)
-        TimePickerDialog(
-            context,
-            { _, hour, minute ->
-                val chosen = hour * 60 + minute
-                if (chosen > currentTimeMinutes()) {
-                    timeError = "Future times cannot be used."
-                } else if (isStart) {
-                    startMinutes = chosen
-                    timeError = null
-                } else {
-                    endMinutes = chosen
-                    timeError = null
-                }
-            },
-            initial.hour,
-            initial.minute,
-            DateFormat.is24HourFormat(context)
-        ).show()
+        timePickerIsStart = isStart
     }
 
     fun saveUpdate() {
@@ -317,6 +303,172 @@ private fun LocalActivityScreen() {
                 ConfirmationCard(onDismiss = { confirmationVisible = false })
             }
 
+        }
+    }
+
+    timePickerIsStart?.let { isStart ->
+        KNTimePickerDialog(
+            initialMinutes = if (isStart) startMinutes else endMinutes,
+            onDismiss = { timePickerIsStart = null },
+            onConfirm = { chosen ->
+                if (isStart) {
+                    startMinutes = chosen
+                } else {
+                    endMinutes = chosen
+                }
+                timeError = null
+                timePickerIsStart = null
+            }
+        )
+    }
+}
+
+@Composable
+private fun KNTimePickerDialog(
+    initialMinutes: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (Int) -> Unit
+) {
+    val nowLimit = remember { currentTimeMinutes() }
+    val maxHour = nowLimit / 60
+    val maxMinute = nowLimit % 60
+    val safeInitial = initialMinutes.coerceIn(0, nowLimit)
+    var selectedHour by remember { mutableStateOf(safeInitial / 60) }
+    var selectedMinute by remember { mutableStateOf(safeInitial % 60) }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+            color = Paper,
+            shape = RoundedCornerShape(0.dp),
+            border = BorderStroke(1.dp, Ink)
+        ) {
+            Column(
+                modifier = Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text(
+                    text = "TIME",
+                    color = Ink,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.2.sp
+                )
+                Text(
+                    text = formatMinutes(selectedHour * 60 + selectedMinute),
+                    color = Ink,
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    TimeValuePicker(
+                        label = "HOUR",
+                        values = 0..23,
+                        selected = selectedHour,
+                        enabled = { it <= maxHour },
+                        onSelect = { hour ->
+                            selectedHour = hour
+                            if (hour == maxHour && selectedMinute > maxMinute) {
+                                selectedMinute = maxMinute
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    TimeValuePicker(
+                        label = "MINUTE",
+                        values = 0..59,
+                        selected = selectedMinute,
+                        enabled = { selectedHour < maxHour || it <= maxMinute },
+                        onSelect = { selectedMinute = it },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(0.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Ink),
+                        border = BorderStroke(1.dp, Ink)
+                    ) {
+                        Text(text = "CANCEL", fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+                    }
+                    BlackButton(
+                        label = "OK",
+                        onClick = { onConfirm(selectedHour * 60 + selectedMinute) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TimeValuePicker(
+    label: String,
+    values: IntRange,
+    selected: Int,
+    enabled: (Int) -> Boolean,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(selected) {
+        listState.animateScrollToItem((selected - 2).coerceAtLeast(0))
+    }
+
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = label,
+            color = Muted,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.sp
+        )
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(180.dp)
+                .border(1.dp, Rule, RoundedCornerShape(0.dp)),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            items(values.toList(), key = { it }) { value ->
+                val isEnabled = enabled(value)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = isEnabled) { onSelect(value) }
+                        .background(if (value == selected) ActiveRow else Paper)
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = value.toString().padStart(2, '0'),
+                        color = when {
+                            !isEnabled -> Color(0xFFCCCCCC)
+                            value == selected -> Ink
+                            else -> Muted
+                        },
+                        fontSize = 16.sp,
+                        fontWeight = if (value == selected) FontWeight.Bold else FontWeight.Normal
+                    )
+                }
+            }
         }
     }
 }
