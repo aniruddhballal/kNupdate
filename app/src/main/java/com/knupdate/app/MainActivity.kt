@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -99,12 +98,12 @@ private fun KNupdateApp() {
             }
         )
     } else {
-        LocalActivityScreen(displayName = displayName)
+        LocalActivityScreen()
     }
 }
 
 @Composable
-private fun ScreenHeader(label: String) {
+private fun ScreenHeader(label: String?) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -126,13 +125,15 @@ private fun ScreenHeader(label: String) {
             fontWeight = FontWeight.Bold,
             letterSpacing = (-1).sp
         )
-        Text(
-            text = label,
-            color = Ink,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.5.sp
-        )
+        label?.let {
+            Text(
+                text = it,
+                color = Ink,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.5.sp
+            )
+        }
     }
 }
 
@@ -188,7 +189,7 @@ private fun NameSetupScreen(onSave: (String) -> Unit) {
 }
 
 @Composable
-private fun LocalActivityScreen(displayName: String) {
+private fun LocalActivityScreen() {
     val context = LocalContext.current
     val preferences = remember {
         context.getSharedPreferences("knupdate_local", 0)
@@ -268,7 +269,7 @@ private fun LocalActivityScreen(displayName: String) {
             .navigationBarsPadding()
             .padding(horizontal = 20.dp)
     ) {
-        ScreenHeader(label = "LOCAL ACTIVITY LEDGER")
+        ScreenHeader(label = null)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -277,32 +278,10 @@ private fun LocalActivityScreen(displayName: String) {
                 .padding(bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = "New update",
-                color = Ink,
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = (-0.5).sp
-            )
-            Text(
-                text = "Choose what you want to record, then update your connections.",
-                color = Muted,
-                fontSize = 12.sp,
-                lineHeight = 18.sp
-            )
-
             SectionLabel(text = "ACTIVITY")
             ActivityOptionList(
                 selectedActivityId = selectedActivityId,
                 onSelect = { selectedActivityId = it }
-            )
-
-            SectionLabel(text = "DETAIL")
-            ChoiceList(
-                choices = selectedActivity.bodies,
-                selected = selectedBody,
-                onSelect = { selectedBody = it }
             )
 
             SectionLabel(text = if (selectedActivity.timeMode == TimeMode.SINGLE) "TIME" else "TIME RANGE")
@@ -326,12 +305,6 @@ private fun LocalActivityScreen(displayName: String) {
                     )
                 }
             }
-            Text(
-                text = "Defaults to the current phone time. Future times are not allowed.",
-                color = Muted,
-                fontSize = 12.sp,
-                lineHeight = 18.sp
-            )
             timeError?.let { Text(text = it, color = Color(0xFFB3261E), fontSize = 13.sp) }
 
             BlackButton(
@@ -344,21 +317,6 @@ private fun LocalActivityScreen(displayName: String) {
                 ConfirmationCard(onDismiss = { confirmationVisible = false })
             }
 
-            SectionLabel(text = "LOCAL UPDATES")
-            if (updates.isEmpty()) {
-                Text(text = "No local updates yet.", color = Ink, fontSize = 15.sp)
-            } else {
-                updates.take(10).forEach { update ->
-                    LocalUpdateRow(update = update)
-                }
-            }
-
-            Text(
-                text = "$displayName · stored only on this phone",
-                color = Muted,
-                fontSize = 11.sp,
-                letterSpacing = 0.3.sp
-            )
         }
     }
 }
@@ -395,14 +353,6 @@ private fun ActivityOptionList(selectedActivityId: String, onSelect: (String) ->
                 )
                 Column(modifier = Modifier.padding(start = 10.dp)) {
                     Text(text = option.title, color = Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        text = if (option.timeMode == TimeMode.SINGLE) "ONE TIME" else "FROM / TO",
-                        color = Muted,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.8.sp,
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
                 }
             }
             Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Rule))
@@ -495,8 +445,8 @@ private fun ConfirmationCard(onDismiss: () -> Unit) {
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(text = "UPDATE RECORDED", color = Ink, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-        Text(text = "No connections are configured yet. Delivery is simulated for now.", color = Ink, fontSize = 13.sp, lineHeight = 19.sp)
+        Text(text = "UPDATED", color = Ink, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+        Text(text = "No connections yet.", color = Ink, fontSize = 13.sp)
         OutlinedButton(
             onClick = onDismiss,
             shape = RoundedCornerShape(0.dp),
