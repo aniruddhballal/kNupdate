@@ -15,6 +15,7 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -231,6 +232,7 @@ private fun VerifyOtpScreen(
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun AuthScreenScaffold(content: @Composable () -> Unit) {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -255,6 +257,7 @@ private fun AuthScreenScaffold(content: @Composable () -> Unit) {
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun AuthenticatedShell(
     session: AuthSession,
     onSignOut: () -> Unit
@@ -446,7 +449,6 @@ private enum class AppDestination(val title: String) {
     PROFILE("Profile")
 }
 
-@Composable
 @Composable
 private fun FeedScreen(
     activities: List<ActivityResponse>,
