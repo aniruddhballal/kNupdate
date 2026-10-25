@@ -1,67 +1,72 @@
 package com.knupdate.app
 
+import android.app.TimePickerDialog
 import android.os.Bundle
+import android.text.format.DateFormat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import com.knupdate.app.auth.ApiClient
-import com.knupdate.app.auth.ActivityRepository
-import com.knupdate.app.auth.ActivityResponse
-import com.knupdate.app.auth.ConnectionRepository
-import com.knupdate.app.auth.ConnectionSummary
-import com.knupdate.app.auth.AuthRepository
-import com.knupdate.app.auth.AuthSession
-import com.knupdate.app.auth.CreateActivityRequest
-import com.knupdate.app.auth.IncomingConnectionRequest
-import com.knupdate.app.ui.theme.KNupdateTheme
-import kotlinx.coroutines.launch
-import java.time.LocalDate
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.text.BasicTextField
+import org.json.JSONArray
+import org.json.JSONObject
 import java.time.LocalTime
-import java.time.OffsetDateTime
-import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.time.format.DateTimeParseException
 import java.util.Locale
+import com.knupdate.app.ui.theme.KNupdateTheme
+
+private val Ink = Color(0xFF000000)
+private val Paper = Color(0xFFFFFFFF)
+private val Muted = Color(0xFF555555)
+private val Rule = Color(0xFFDDDDDD)
+private val ActiveRow = Color(0xFFF2F2F2)
+private val TimeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        window.statusBarColor = android.graphics.Color.WHITE
+        window.navigationBarColor = android.graphics.Color.WHITE
         setContent {
             KNupdateTheme {
                 KNupdateApp()
@@ -72,725 +77,510 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun KNupdateApp() {
-    val authRepository = remember {
-        AuthRepository(ApiClient.httpClient, BuildConfig.API_BASE_URL)
+    val context = LocalContext.current
+    val preferences = remember {
+        context.getSharedPreferences("knupdate_local", 0)
     }
-    val scope = rememberCoroutineScope()
-    var authState by remember { mutableStateOf<AuthUiState>(AuthUiState.SignedOut) }
-    var isSubmitting by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-
-    when (val state = authState) {
-        AuthUiState.SignedOut -> SignInScreen(
-            isSubmitting = isSubmitting,
-            errorMessage = errorMessage,
-            onContinue = { phoneNumber ->
-                isSubmitting = true
-                errorMessage = null
-                scope.launch {
-                    authRepository.requestOtp(phoneNumber).fold(
-                        onSuccess = { challenge ->
-                            authState = AuthUiState.AwaitingOtp(
-                                phoneNumber = phoneNumber,
-                                challengeId = challenge.challengeId
-                            )
-                            isSubmitting = false
-                        },
-                        onFailure = {
-                            errorMessage = it.message ?: "Unable to request a verification code."
-                            isSubmitting = false
-                        }
-                    )
-                }
-            }
-        )
-
-        is AuthUiState.AwaitingOtp -> VerifyOtpScreen(
-            isSubmitting = isSubmitting,
-            errorMessage = errorMessage,
-            onBack = {
-                authState = AuthUiState.SignedOut
-                errorMessage = null
-            },
-            onVerify = { otp, displayName ->
-                isSubmitting = true
-                errorMessage = null
-                scope.launch {
-                    authRepository.verifyOtp(state.challengeId, otp, displayName).fold(
-                        onSuccess = { session ->
-                            authState = AuthUiState.SignedIn(session)
-                            isSubmitting = false
-                        },
-                        onFailure = {
-                            errorMessage = it.message ?: "Unable to verify the code."
-                            isSubmitting = false
-                        }
-                    )
-                }
-            }
-        )
-
-        is AuthUiState.SignedIn -> AuthenticatedShell(
-            session = state.session,
-            onSignOut = {
-                authState = AuthUiState.SignedOut
-                errorMessage = null
-            }
-        )
+    var displayName by rememberSaveable {
+        mutableStateOf(preferences.getString(DISPLAY_NAME_KEY, "").orEmpty())
     }
-}
 
-private sealed interface AuthUiState {
-    data object SignedOut : AuthUiState
-    data class AwaitingOtp(val phoneNumber: String, val challengeId: String) : AuthUiState
-    data class SignedIn(val session: AuthSession) : AuthUiState
-}
-
-@Composable
-private fun SignInScreen(
-    isSubmitting: Boolean,
-    errorMessage: String?,
-    onContinue: (String) -> Unit
-) {
-    var phoneNumber by remember { mutableStateOf("") }
-
-    AuthScreenScaffold {
-        Text(
-            text = "A private, temporary activity ledger for people already close to you.",
-            style = MaterialTheme.typography.titleLarge
+    if (displayName.isBlank()) {
+        NameSetupScreen(
+            onSave = { name ->
+                val normalized = name.trim()
+                preferences.edit().putString(DISPLAY_NAME_KEY, normalized).apply()
+                displayName = normalized
+            }
         )
-        Text(
-            text = "No public account, followers, likes, messages, or archive.",
-            style = MaterialTheme.typography.bodyMedium
-        )
-        OutlinedTextField(
-            value = phoneNumber,
-            onValueChange = { phoneNumber = it },
-            label = { Text("Phone number") },
-            singleLine = true,
-            enabled = !isSubmitting,
-            modifier = Modifier.fillMaxWidth()
-        )
-        errorMessage?.let { message ->
-            Text(message, color = MaterialTheme.colorScheme.error)
-        }
-        Button(
-            onClick = { onContinue(phoneNumber.trim()) },
-            enabled = phoneNumber.isNotBlank() && !isSubmitting
-        ) {
-            Text(if (isSubmitting) "Requesting…" else "Continue")
-        }
+    } else {
+        LocalActivityScreen(displayName = displayName)
     }
 }
 
 @Composable
-private fun VerifyOtpScreen(
-    isSubmitting: Boolean,
-    errorMessage: String?,
-    onBack: () -> Unit,
-    onVerify: (otp: String, displayName: String) -> Unit
-) {
-    var otp by remember { mutableStateOf("") }
-    var displayName by remember { mutableStateOf("") }
-
-    AuthScreenScaffold {
-        Text(
-            text = "Verify your number",
-            style = MaterialTheme.typography.titleLarge
-        )
-        Text(
-            text = "Enter the code and choose the name your connections will see.",
-            style = MaterialTheme.typography.bodyMedium
-        )
-        OutlinedTextField(
-            value = otp,
-            onValueChange = { otp = it },
-            label = { Text("Verification code") },
-            singleLine = true,
-            enabled = !isSubmitting
-        )
-        OutlinedTextField(
-            value = displayName,
-            onValueChange = { displayName = it },
-            label = { Text("Display name") },
-            singleLine = true,
-            enabled = !isSubmitting
-        )
-        errorMessage?.let { message ->
-            Text(message, color = MaterialTheme.colorScheme.error)
-        }
-        Button(
-            onClick = { onVerify(otp.trim(), displayName.trim()) },
-            enabled = otp.isNotBlank() && displayName.isNotBlank() && !isSubmitting
-        ) {
-            Text(if (isSubmitting) "Verifying…" else "Verify")
-        }
-        TextButton(onClick = onBack, enabled = !isSubmitting) {
-            Text("Use a different number")
-        }
-    }
-}
-
-@Composable
-@OptIn(ExperimentalMaterial3Api::class)
-private fun AuthScreenScaffold(content: @Composable () -> Unit) {
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("kNupdate") }
-            )
-        }
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 24.dp)
-                .widthIn(max = 480.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
-        ) {
-            content()
-        }
-    }
-}
-
-@Composable
-@OptIn(ExperimentalMaterial3Api::class)
-private fun AuthenticatedShell(
-    session: AuthSession,
-    onSignOut: () -> Unit
-) {
-    var destination by remember { mutableStateOf(AppDestination.FEED) }
-    val activityRepository = remember {
-        ActivityRepository(ApiClient.httpClient, BuildConfig.API_BASE_URL)
-    }
-    val connectionRepository = remember {
-        ConnectionRepository(ApiClient.httpClient, BuildConfig.API_BASE_URL)
-    }
-    val scope = rememberCoroutineScope()
-    var feed by remember { mutableStateOf<List<ActivityResponse>>(emptyList()) }
-    var isFeedLoading by remember { mutableStateOf(false) }
-    var activityError by remember { mutableStateOf<String?>(null) }
-    var isActivitySubmitting by remember { mutableStateOf(false) }
-    var connections by remember { mutableStateOf<List<ConnectionSummary>>(emptyList()) }
-    var incomingRequests by remember { mutableStateOf<List<IncomingConnectionRequest>>(emptyList()) }
-    var generatedCode by remember { mutableStateOf<String?>(null) }
-    var connectionCodeInput by remember { mutableStateOf("") }
-    var connectionError by remember { mutableStateOf<String?>(null) }
-    var isConnectionsLoading by remember { mutableStateOf(false) }
-
-    suspend fun loadConnections() {
-        isConnectionsLoading = true
-        connectionError = null
-        connectionRepository.listConnections(session).fold(
-            onSuccess = { connections = it },
-            onFailure = { connectionError = it.message ?: "Unable to load connections." }
-        )
-        connectionRepository.incomingRequests(session).fold(
-            onSuccess = { incomingRequests = it },
-            onFailure = { connectionError = it.message ?: "Unable to load connection requests." }
-        )
-        isConnectionsLoading = false
-    }
-
-    LaunchedEffect(session.accessToken) {
-        isFeedLoading = true
-        activityRepository.feed(session).fold(
-            onSuccess = {
-                feed = it
-                activityError = null
-            },
-            onFailure = { activityError = it.message ?: "Unable to load the feed." }
-        )
-        isFeedLoading = false
-        loadConnections()
-    }
-
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("kNupdate") }
-            )
-        },
-        bottomBar = {
-            NavigationBar {
-                AppDestination.entries.forEach { item ->
-                    NavigationBarItem(
-                        selected = destination == item,
-                        onClick = { destination = item },
-                        icon = { Text(item.title.first().toString()) },
-                        label = { Text(item.title) }
-                    )
-                }
-            }
-        }
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            when (destination) {
-                AppDestination.FEED -> FeedScreen(
-                    activities = feed,
-                    isLoading = isFeedLoading,
-                    errorMessage = activityError
-                )
-                AppDestination.ADD -> AddActivityScreen(
-                    displayName = session.user.displayName,
-                    isSubmitting = isActivitySubmitting,
-                    errorMessage = activityError,
-                    onCreateActivity = { request ->
-                        scope.launch {
-                            isActivitySubmitting = true
-                            activityError = null
-                            activityRepository.create(session, request).fold(
-                                onSuccess = {
-                                    isActivitySubmitting = false
-                                    destination = AppDestination.FEED
-                                    isFeedLoading = true
-                                    activityRepository.feed(session).fold(
-                                        onSuccess = {
-                                            feed = it
-                                            activityError = null
-                                        },
-                                        onFailure = {
-                                            activityError = it.message ?: "Unable to load the feed."
-                                        }
-                                    )
-                                    isFeedLoading = false
-                                },
-                                onFailure = {
-                                    isActivitySubmitting = false
-                                    activityError = it.message ?: "Unable to create the activity."
-                                }
-                            )
-                        }
-                    }
-                )
-                AppDestination.PROFILE -> ProfileScreen(
-                    displayName = session.user.displayName,
-                    connections = connections,
-                    incomingRequests = incomingRequests,
-                    generatedCode = generatedCode,
-                    connectionCodeInput = connectionCodeInput,
-                    connectionError = connectionError,
-                    isLoading = isConnectionsLoading,
-                    onConnectionCodeInputChange = { connectionCodeInput = it },
-                    onCreateCode = {
-                        scope.launch {
-                            connectionRepository.createCode(session).fold(
-                                onSuccess = { generatedCode = it.code },
-                                onFailure = {
-                                    connectionError = it.message ?: "Unable to create a connection code."
-                                }
-                            )
-                        }
-                    },
-                    onRequestConnection = {
-                        scope.launch {
-                            connectionRepository.requestConnection(session, connectionCodeInput.trim()).fold(
-                                onSuccess = {
-                                    connectionCodeInput = ""
-                                    connectionError = "Connection request sent."
-                                },
-                                onFailure = {
-                                    connectionError = it.message ?: "Unable to send the connection request."
-                                }
-                            )
-                        }
-                    },
-                    onAcceptRequest = { requestId ->
-                        scope.launch {
-                            connectionRepository.acceptRequest(session, requestId).fold(
-                                onSuccess = { loadConnections() },
-                                onFailure = {
-                                    connectionError = it.message ?: "Unable to accept the request."
-                                }
-                            )
-                        }
-                    },
-                    onDeclineRequest = { requestId ->
-                        scope.launch {
-                            connectionRepository.declineRequest(session, requestId).fold(
-                                onSuccess = { loadConnections() },
-                                onFailure = {
-                                    connectionError = it.message ?: "Unable to decline the request."
-                                }
-                            )
-                        }
-                    },
-                    onRemoveConnection = { connectionId ->
-                        scope.launch {
-                            connectionRepository.removeConnection(session, connectionId).fold(
-                                onSuccess = { loadConnections() },
-                                onFailure = {
-                                    connectionError = it.message ?: "Unable to remove the connection."
-                                }
-                            )
-                        }
-                    },
-                    onSignOut = onSignOut
-                )
-            }
-        }
-    }
-}
-
-private enum class AppDestination(val title: String) {
-    FEED("Feed"),
-    ADD("Add"),
-    PROFILE("Profile")
-}
-
-@Composable
-private fun FeedScreen(
-    activities: List<ActivityResponse>,
-    isLoading: Boolean,
-    errorMessage: String?
-) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.Start,
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        when {
-            isLoading -> Text("Loading activity updates…")
-            activities.isEmpty() -> Text(
-                text = "No current activity updates.",
-                style = MaterialTheme.typography.titleMedium
-            )
-            else -> activities.forEachIndexed { index, activity ->
-                Text(
-                    text = activity.renderedText,
-                    style = MaterialTheme.typography.bodyLarge
-                )
-                if (index < activities.lastIndex) HorizontalDivider()
-            }
-        }
-        errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-    }
-}
-
-@Composable
-private fun AddActivityScreen(
-    displayName: String,
-    isSubmitting: Boolean,
-    errorMessage: String?,
-    onCreateActivity: (CreateActivityRequest) -> Unit
-) {
-    var selectedActivity by rememberSaveable { mutableStateOf(ACTIVITY_OPTIONS.first().first) }
-    var activityMenuExpanded by remember { mutableStateOf(false) }
-    var startTime by rememberSaveable { mutableStateOf("09:30") }
-    var endTime by rememberSaveable { mutableStateOf("10:00") }
-    var selectedQuantityType by rememberSaveable { mutableStateOf<String?>(null) }
-    var quantityMenuExpanded by remember { mutableStateOf(false) }
-    var quantityValue by rememberSaveable { mutableStateOf("") }
-
-    val validationError = validateActivityInput(
-        startTime = startTime,
-        endTime = endTime,
-        quantityType = selectedQuantityType,
-        quantityValue = quantityValue
-    )
-
+private fun ScreenHeader(label: String) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .verticalScroll(rememberScrollState()),
-        horizontalAlignment = Alignment.Start,
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .drawBehind {
+                drawLine(
+                    color = Ink,
+                    start = Offset(0f, size.height),
+                    end = Offset(size.width, size.height),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
+            .padding(top = 10.dp, bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text("Add activity", style = MaterialTheme.typography.titleLarge)
-        Text("Choose from the fixed activity list. There is no caption or proof field.")
-
-        Box {
-            OutlinedButton(onClick = { activityMenuExpanded = true }) {
-                Text(activityLabel(selectedActivity))
-            }
-            DropdownMenu(
-                expanded = activityMenuExpanded,
-                onDismissRequest = { activityMenuExpanded = false }
-            ) {
-                ACTIVITY_OPTIONS.forEach { (value, label) ->
-                    DropdownMenuItem(
-                        text = { Text(label) },
-                        onClick = {
-                            selectedActivity = value
-                            activityMenuExpanded = false
-                        }
-                    )
-                }
-            }
-        }
-
-        OutlinedTextField(
-            value = startTime,
-            onValueChange = { startTime = it },
-            label = { Text("Start time (HH:mm)") },
-            singleLine = true,
-            enabled = !isSubmitting,
-            modifier = Modifier.fillMaxWidth()
+        Text(
+            text = "kN",
+            color = Ink,
+            fontSize = 30.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = (-1).sp
         )
-        OutlinedTextField(
-            value = endTime,
-            onValueChange = { endTime = it },
-            label = { Text("End time (HH:mm)") },
-            singleLine = true,
-            enabled = !isSubmitting,
-            modifier = Modifier.fillMaxWidth()
+        Text(
+            text = label,
+            color = Ink,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.5.sp
         )
+    }
+}
 
-        Box {
-            OutlinedButton(onClick = { quantityMenuExpanded = true }) {
-                Text(quantityLabel(selectedQuantityType))
-            }
-            DropdownMenu(
-                expanded = quantityMenuExpanded,
-                onDismissRequest = { quantityMenuExpanded = false }
-            ) {
-                QUANTITY_OPTIONS.forEach { (value, label) ->
-                    DropdownMenuItem(
-                        text = { Text(label) },
-                        onClick = {
-                            selectedQuantityType = value
-                            quantityMenuExpanded = false
-                            if (value == null) quantityValue = ""
-                        }
-                    )
-                }
-            }
-        }
+@Composable
+private fun NameSetupScreen(onSave: (String) -> Unit) {
+    var name by rememberSaveable { mutableStateOf("") }
 
-        if (selectedQuantityType != null) {
-            OutlinedTextField(
-                value = quantityValue,
-                onValueChange = { quantityValue = it },
-                label = { Text("Quantity") },
-                singleLine = true,
-                enabled = !isSubmitting,
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Paper)
+            .padding(horizontal = 20.dp),
+        horizontalAlignment = Alignment.Start
+    ) {
+        ScreenHeader(label = "LOCAL ONLY")
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically)
+        ) {
+            Box(modifier = Modifier.size(width = 42.dp, height = 4.dp).background(Ink))
+            Text(
+                text = "Set your name",
+                color = Ink,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = (-0.5).sp
+            )
+            Text(
+                text = "This name stays on this phone. Nothing is sent to a server.",
+                color = Ink,
+                fontSize = 15.sp,
+                lineHeight = 22.sp
+            )
+            LocalTextField(
+                value = name,
+                onValueChange = { name = it },
+                placeholder = "Display name",
+                onDone = { if (name.trim().isNotEmpty()) onSave(name) }
+            )
+            BlackButton(
+                label = "SAVE NAME",
+                enabled = name.trim().isNotEmpty(),
+                onClick = { onSave(name) },
                 modifier = Modifier.fillMaxWidth()
             )
         }
+    }
+}
 
-        Text("Preview", style = MaterialTheme.typography.titleMedium)
-        Text(
-            text = activityPreview(
-                displayName,
-                selectedActivity,
-                startTime,
-                endTime,
-                selectedQuantityType,
-                quantityValue
-            )
-        )
+@Composable
+private fun LocalActivityScreen(displayName: String) {
+    val context = LocalContext.current
+    val preferences = remember {
+        context.getSharedPreferences("knupdate_local", 0)
+    }
+    val defaultTime = remember { currentTimeMinutes() }
+    var selectedActivityId by rememberSaveable { mutableStateOf(ACTIVITY_OPTIONS.first().id) }
+    var selectedBody by rememberSaveable { mutableStateOf(ACTIVITY_OPTIONS.first().bodies.first()) }
+    var startMinutes by rememberSaveable { mutableStateOf(defaultTime) }
+    var endMinutes by rememberSaveable { mutableStateOf(defaultTime) }
+    var timeError by rememberSaveable { mutableStateOf<String?>(null) }
+    var confirmationVisible by rememberSaveable { mutableStateOf(false) }
+    var updates by remember { mutableStateOf(loadUpdates(preferences)) }
 
-        (errorMessage ?: validationError)?.let { message ->
-            Text(message, color = MaterialTheme.colorScheme.error)
+    val selectedActivity = ACTIVITY_OPTIONS.first { it.id == selectedActivityId }
+
+    LaunchedEffect(selectedActivityId) {
+        selectedBody = selectedActivity.bodies.first()
+        val now = currentTimeMinutes()
+        startMinutes = now
+        endMinutes = now
+        timeError = null
+    }
+
+    fun chooseTime(isStart: Boolean) {
+        val currentValue = if (isStart) startMinutes else endMinutes
+        val initial = minutesToLocalTime(currentValue)
+        TimePickerDialog(
+            context,
+            { _, hour, minute ->
+                val chosen = hour * 60 + minute
+                if (chosen > currentTimeMinutes()) {
+                    timeError = "Future times cannot be used."
+                } else if (isStart) {
+                    startMinutes = chosen
+                    timeError = null
+                } else {
+                    endMinutes = chosen
+                    timeError = null
+                }
+            },
+            initial.hour,
+            initial.minute,
+            DateFormat.is24HourFormat(context)
+        ).show()
+    }
+
+    fun saveUpdate() {
+        val now = currentTimeMinutes()
+        when {
+            startMinutes > now || (selectedActivity.timeMode == TimeMode.RANGE && endMinutes > now) -> {
+                timeError = "Future times cannot be used."
+                return
+            }
+            selectedActivity.timeMode == TimeMode.RANGE && endMinutes <= startMinutes -> {
+                timeError = "The end time must be after the start time."
+                return
+            }
         }
 
-        Button(
-            onClick = {
-                onCreateActivity(
-                    CreateActivityRequest(
-                        activityType = selectedActivity,
-                        startedAt = activityDateTime(startTime),
-                        endedAt = activityDateTime(endTime),
-                        quantityType = selectedQuantityType,
-                        quantityValue = quantityValue.toDoubleOrNull()
-                    )
-                )
-            },
-            enabled = validationError == null && !isSubmitting
+        val update = LocalUpdate(
+            title = selectedActivity.title,
+            body = selectedBody,
+            startMinutes = startMinutes,
+            endMinutes = if (selectedActivity.timeMode == TimeMode.RANGE) endMinutes else null
+        )
+        updates = listOf(update) + updates
+        saveUpdates(preferences, updates)
+        confirmationVisible = true
+        timeError = null
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Paper)
+            .padding(horizontal = 20.dp)
+    ) {
+        ScreenHeader(label = "LOCAL ACTIVITY LEDGER")
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Text(if (isSubmitting) "Sending…" else "Notify connections")
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "New update",
+                color = Ink,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = (-0.5).sp
+            )
+            Text(
+                text = "Choose what you want to record, then update your connections.",
+                color = Muted,
+                fontSize = 12.sp,
+                lineHeight = 18.sp
+            )
+
+            SectionLabel(text = "ACTIVITY")
+            ActivityOptionList(
+                selectedActivityId = selectedActivityId,
+                onSelect = { selectedActivityId = it }
+            )
+
+            SectionLabel(text = "DETAIL")
+            ChoiceList(
+                choices = selectedActivity.bodies,
+                selected = selectedBody,
+                onSelect = { selectedBody = it }
+            )
+
+            SectionLabel(text = if (selectedActivity.timeMode == TimeMode.SINGLE) "TIME" else "TIME RANGE")
+            if (selectedActivity.timeMode == TimeMode.SINGLE) {
+                TimeButton(
+                    label = formatMinutes(startMinutes),
+                    onClick = { chooseTime(isStart = true) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    TimeButton(
+                        label = "FROM  ${formatMinutes(startMinutes)}",
+                        onClick = { chooseTime(isStart = true) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    TimeButton(
+                        label = "TO  ${formatMinutes(endMinutes)}",
+                        onClick = { chooseTime(isStart = false) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+            Text(
+                text = "Defaults to the current phone time. Future times are not allowed.",
+                color = Muted,
+                fontSize = 12.sp,
+                lineHeight = 18.sp
+            )
+            timeError?.let { Text(text = it, color = Color(0xFFB3261E), fontSize = 13.sp) }
+
+            BlackButton(
+                label = "kNupdate",
+                onClick = ::saveUpdate,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            if (confirmationVisible) {
+                ConfirmationCard(onDismiss = { confirmationVisible = false })
+            }
+
+            SectionLabel(text = "LOCAL UPDATES")
+            if (updates.isEmpty()) {
+                Text(text = "No local updates yet.", color = Ink, fontSize = 15.sp)
+            } else {
+                updates.take(10).forEach { update ->
+                    LocalUpdateRow(update = update)
+                }
+            }
+
+            Text(
+                text = "$displayName · stored only on this phone",
+                color = Muted,
+                fontSize = 11.sp,
+                letterSpacing = 0.3.sp
+            )
         }
     }
+}
+
+@Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text = text,
+        color = Muted,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 1.5.sp,
+        modifier = Modifier.padding(top = 8.dp)
+    )
+}
+
+@Composable
+private fun ActivityOptionList(selectedActivityId: String, onSelect: (String) -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        ACTIVITY_OPTIONS.forEach { option ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(if (option.id == selectedActivityId) ActiveRow else Paper)
+                    .clickable { onSelect(option.id) }
+                    .padding(vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(4.dp)
+                        .height(38.dp)
+                        .background(if (option.id == selectedActivityId) Ink else Color.Transparent)
+                )
+                Column(modifier = Modifier.padding(start = 10.dp)) {
+                    Text(text = option.title, color = Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        text = if (option.timeMode == TimeMode.SINGLE) "ONE TIME" else "FROM / TO",
+                        color = Muted,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.8.sp,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+            }
+            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Rule))
+        }
+    }
+}
+
+@Composable
+private fun ChoiceList(choices: List<String>, selected: String, onSelect: (String) -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        choices.forEach { choice ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSelect(choice) }
+                    .padding(vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(18.dp)
+                        .border(1.dp, Ink, RoundedCornerShape(0.dp))
+                        .background(if (choice == selected) Ink else Paper)
+                )
+                Text(text = choice, color = Ink, fontSize = 15.sp, modifier = Modifier.padding(start = 12.dp))
+            }
+            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Rule))
+        }
+    }
+}
+
+@Composable
+private fun TimeButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = modifier.height(48.dp),
+        shape = RoundedCornerShape(0.dp),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = Ink),
+        border = BorderStroke(1.dp, Ink)
+    ) {
+        Text(text = label, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.6.sp)
+    }
+}
+
+@Composable
+private fun BlackButton(label: String, enabled: Boolean = true, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.height(48.dp),
+        shape = RoundedCornerShape(0.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Ink,
+            contentColor = Paper,
+            disabledContainerColor = Color(0xFFDDDDDD),
+            disabledContentColor = Color(0xFF777777)
+        )
+    ) {
+        Text(text = label, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+    }
+}
+
+@Composable
+private fun LocalTextField(value: String, onValueChange: (String) -> Unit, placeholder: String, onDone: () -> Unit) {
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        singleLine = true,
+        textStyle = MaterialTheme.typography.bodyLarge.copy(color = Ink, fontSize = 16.sp),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { onDone() }),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, Ink, RoundedCornerShape(0.dp))
+            .padding(horizontal = 14.dp, vertical = 14.dp),
+        decorationBox = { innerTextField ->
+            if (value.isEmpty()) Text(text = placeholder, color = Muted, fontSize = 15.sp)
+            innerTextField()
+        }
+    )
+}
+
+@Composable
+private fun ConfirmationCard(onDismiss: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(ActiveRow)
+            .border(1.dp, Ink, RoundedCornerShape(0.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(text = "UPDATE RECORDED", color = Ink, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+        Text(text = "No connections are configured yet. Delivery is simulated for now.", color = Ink, fontSize = 13.sp, lineHeight = 19.sp)
+        OutlinedButton(
+            onClick = onDismiss,
+            shape = RoundedCornerShape(0.dp),
+            border = BorderStroke(1.dp, Ink),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = Ink)
+        ) {
+            Text(text = "DISMISS", fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.7.sp)
+        }
+    }
+}
+
+@Composable
+private fun LocalUpdateRow(update: LocalUpdate) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .drawBehind {
+                drawLine(
+                    color = Rule,
+                    start = Offset(0f, size.height),
+                    end = Offset(size.width, size.height),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
+            .padding(vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(text = update.title, color = Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        Text(text = update.body, color = Muted, fontSize = 13.sp)
+        Text(text = update.timeText(), color = Muted, fontSize = 11.sp, letterSpacing = 0.4.sp)
+    }
+}
+
+private enum class TimeMode { SINGLE, RANGE }
+
+private data class ActivityOption(val id: String, val title: String, val bodies: List<String>, val timeMode: TimeMode)
+
+private data class LocalUpdate(val title: String, val body: String, val startMinutes: Int, val endMinutes: Int?) {
+    fun timeText(): String = if (endMinutes == null) formatMinutes(startMinutes) else "${formatMinutes(startMinutes)}–${formatMinutes(endMinutes)}"
 }
 
 private val ACTIVITY_OPTIONS = listOf(
-    "run" to "Run",
-    "walk" to "Walk",
-    "cycle" to "Cycle",
-    "swim" to "Swim",
-    "strength_training" to "Strength training",
-    "yoga" to "Yoga",
-    "sport_game" to "Sport / game",
-    "study" to "Study",
-    "read" to "Read",
-    "work" to "Work",
-    "cook" to "Cook",
-    "travel" to "Travel",
-    "rest" to "Rest",
-    "other" to "Other structured activity"
+    ActivityOption("location", "Current location", listOf("Home", "Work", "Away"), TimeMode.SINGLE),
+    ActivityOption("working", "Working", listOf("Office", "Home", "Other"), TimeMode.RANGE),
+    ActivityOption("studying", "Studying", listOf("Home", "Library", "Other"), TimeMode.RANGE),
+    ActivityOption("eating", "Eating", listOf("Breakfast", "Lunch", "Dinner"), TimeMode.SINGLE),
+    ActivityOption("exercising", "Exercising", listOf("Gym", "Outside", "Home"), TimeMode.RANGE),
+    ActivityOption("travelling", "Travelling", listOf("Walking", "Driving", "Public transport"), TimeMode.RANGE),
+    ActivityOption("sleeping", "Sleeping", listOf("Home"), TimeMode.RANGE)
 )
 
-private val QUANTITY_OPTIONS = listOf(
-    null to "No quantity",
-    "distance" to "Distance (km)",
-    "pages" to "Pages",
-    "minutes" to "Minutes",
-    "sessions" to "Sessions"
-)
+private const val DISPLAY_NAME_KEY = "display_name"
+private const val UPDATES_KEY = "updates"
 
-private fun activityLabel(value: String): String =
-    ACTIVITY_OPTIONS.first { it.first == value }.second
-
-private fun quantityLabel(value: String?): String =
-    QUANTITY_OPTIONS.first { it.first == value }.second
-
-private fun validateActivityInput(
-    startTime: String,
-    endTime: String,
-    quantityType: String?,
-    quantityValue: String
-): String? {
-    val start = parseTime(startTime) ?: return "Enter a start time as HH:mm."
-    val end = parseTime(endTime) ?: return "Enter an end time as HH:mm."
-    if (!end.isAfter(start)) return "End time must be after start time."
-    if (quantityType != null && (quantityValue.toDoubleOrNull()?.let { it > 0.0 } != true)) {
-        return "Enter a positive quantity or choose no quantity."
-    }
-    return null
+private fun currentTimeMinutes(): Int {
+    val now = LocalTime.now()
+    return now.hour * 60 + now.minute
 }
 
-private fun parseTime(value: String): LocalTime? =
-    try {
-        LocalTime.parse(value, DateTimeFormatter.ofPattern("H:mm"))
-    } catch (_: DateTimeParseException) {
-        null
-    }
+private fun minutesToLocalTime(minutes: Int): LocalTime = LocalTime.of((minutes / 60).coerceIn(0, 23), (minutes % 60).coerceIn(0, 59))
 
-private fun activityDateTime(value: String): String {
-    val zone = ZoneId.systemDefault()
-    val offset = zone.rules.getOffset(java.time.Instant.now())
-    return OffsetDateTime.of(LocalDate.now(), parseTime(value)!!, offset).toString()
-}
+private fun formatMinutes(minutes: Int): String = minutesToLocalTime(minutes).format(TimeFormatter)
 
-private fun activityPreview(
-    displayName: String,
-    activityType: String,
-    startTime: String,
-    endTime: String,
-    quantityType: String?,
-    quantityValue: String
-): String {
-    val start = parseTime(startTime) ?: return "Enter valid times to preview the activity."
-    val end = parseTime(endTime) ?: return "Enter valid times to preview the activity."
-    val formatter = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
-    val quantity = if (quantityType == null) "" else " · $quantityValue ${quantityUnit(quantityType)}"
-    return "$displayName completed an activity — ${activityLabel(activityType)}$quantity · ${start.format(formatter)}–${end.format(formatter)}"
-}
-
-private fun quantityUnit(value: String): String = when (value) {
-    "distance" -> "km"
-    "pages" -> "pages"
-    "minutes" -> "minutes"
-    "sessions" -> "sessions"
-    else -> ""
-}
-
-@Composable
-private fun ProfileScreen(
-    displayName: String,
-    connections: List<ConnectionSummary>,
-    incomingRequests: List<IncomingConnectionRequest>,
-    generatedCode: String?,
-    connectionCodeInput: String,
-    connectionError: String?,
-    isLoading: Boolean,
-    onConnectionCodeInputChange: (String) -> Unit,
-    onCreateCode: () -> Unit,
-    onRequestConnection: () -> Unit,
-    onAcceptRequest: (String) -> Unit,
-    onDeclineRequest: (String) -> Unit,
-    onRemoveConnection: (String) -> Unit,
-    onSignOut: () -> Unit
-) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.Start,
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Text(
-            text = displayName,
-            style = MaterialTheme.typography.titleLarge
-        )
-
-        Text("Connections", style = MaterialTheme.typography.titleMedium)
-        if (isLoading) {
-            Text("Loading connections…", style = MaterialTheme.typography.bodyMedium)
-        } else if (connections.isEmpty()) {
-            Text("No current connections.", style = MaterialTheme.typography.bodyMedium)
-        } else {
-            connections.forEach { connection ->
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(connection.displayName)
-                    TextButton(onClick = { onRemoveConnection(connection.id) }) {
-                        Text("Remove")
-                    }
-                }
+private fun loadUpdates(preferences: android.content.SharedPreferences): List<LocalUpdate> {
+    val raw = preferences.getString(UPDATES_KEY, null) ?: return emptyList()
+    return runCatching {
+        val json = JSONArray(raw)
+        buildList {
+            for (index in 0 until json.length()) {
+                val item = json.getJSONObject(index)
+                add(
+                    LocalUpdate(
+                        title = item.getString("title"),
+                        body = item.getString("body"),
+                        startMinutes = item.getInt("start"),
+                        endMinutes = if (item.isNull("end")) null else item.getInt("end")
+                    )
+                )
             }
         }
-
-        TextButton(onClick = onCreateCode) {
-            Text("Create connection code")
-        }
-        generatedCode?.let { code ->
-            Text("Give this code directly to the person you want to connect with:")
-            Text(code, style = MaterialTheme.typography.titleMedium)
-        }
-
-        OutlinedTextField(
-            value = connectionCodeInput,
-            onValueChange = onConnectionCodeInputChange,
-            label = { Text("Connection code") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Button(
-            onClick = onRequestConnection,
-            enabled = connectionCodeInput.isNotBlank()
-        ) {
-            Text("Request connection")
-        }
-
-        if (incomingRequests.isNotEmpty()) {
-            Text("Incoming requests", style = MaterialTheme.typography.titleMedium)
-            incomingRequests.forEach { request ->
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(request.requesterDisplayName)
-                    Text("Shared connections: ${request.sharedMutualCount}")
-                    TextButton(onClick = { onAcceptRequest(request.id) }) {
-                        Text("Accept")
-                    }
-                    TextButton(onClick = { onDeclineRequest(request.id) }) {
-                        Text("Decline")
-                    }
-                }
-            }
-        }
-
-        connectionError?.let { message ->
-            Text(message, color = MaterialTheme.colorScheme.error)
-        }
-
-        TextButton(onClick = onSignOut) {
-            Text("Sign out")
-        }
-    }
+    }.getOrDefault(emptyList())
 }
 
-@Preview(showBackground = true)
-@Composable
-fun KNupdatePreview() {
-    KNupdateTheme {
-        KNupdateApp()
+private fun saveUpdates(preferences: android.content.SharedPreferences, updates: List<LocalUpdate>) {
+    val json = JSONArray()
+    updates.take(50).forEach { update ->
+        json.put(
+            JSONObject()
+                .put("title", update.title)
+                .put("body", update.body)
+                .put("start", update.startMinutes)
+                .put("end", update.endMinutes ?: JSONObject.NULL)
+        )
     }
+    preferences.edit().putString(UPDATES_KEY, json.toString()).apply()
 }

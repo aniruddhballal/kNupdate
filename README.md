@@ -1,90 +1,46 @@
 # kNupdate
 
-kNupdate is a private, temporary activity ledger for people who are already close to one another.
+kNupdate is a local-first activity update app for one phone. It is intentionally small: the user chooses a display name once, selects a structured activity, records where/what they were doing and when, then saves the update locally.
 
-It is intentionally not a social network. There are no public profiles, discovery, followers, likes, comments, messages, media uploads, external sharing, recommendations, analytics, or activity history.
+There is currently no account, internet connection, backend, cloud database, notification service, analytics, sharing, or connection graph. The `kNupdate` action shows a temporary simulated delivery confirmation because connections are not implemented yet.
 
-An activity is a controlled text record such as:
+## Current app flow
 
-> Aniruddh completed an activity — Run · 5 km · 9:30 AM–10:00 AM
+1. Enter a display name. It is stored only in Android local app storage.
+2. Choose a fixed activity title, such as `Current location`, `Working`, `Studying`, `Eating`, `Exercising`, `Travelling`, or `Sleeping`.
+3. Choose a fixed detail/body, such as `Home`, `Work`, `Office`, or `Library`.
+4. Choose either one time or a from/to time range. The default is the current phone time, and future times are rejected.
+5. Press `kNupdate`. The structured update is saved locally and the simulated confirmation explains that no connections exist yet.
 
-Activities are visible only to current mutual connections and are permanently deleted after the global 72-hour expiry window.
+## Design
 
-## Repository layout
+The Android UI follows the local `mp3fy` visual language: white background, black `kN` wordmark, thin rules, compact uppercase labels, square buttons, and simple flat list rows. The launcher mark is a black `kN` on white.
 
-- `app/` — Android client (`com.knupdate.app`), Kotlin and Jetpack Compose.
-- `backend/` — planned Kotlin/Ktor API and deletion worker.
-- `infra/` — planned deployment configuration and environment templates.
-- `docs/` — API, privacy/deletion, and threat-model documentation.
-- `idea.md` — original product and technical build brief.
-- `roadmap.md` — implementation order and acceptance criteria.
-
-## Current status
-
-The Android project is currently a Compose starter. Implementation follows the milestones in [roadmap.md](roadmap.md), beginning with the repository foundation and then the vertical core flow:
-
-`sign in → trusted connection → structured activity → connection feed`
-
-## Android development
+## Build and install
 
 Prerequisites:
 
-- Android Studio with the required Android SDK and JDK.
+- Android Studio with the Android SDK and JDK.
 - An Android device or emulator.
 
-Build and test the current client:
+Build and test:
 
 ```sh
 ./gradlew test
 ./gradlew assembleDebug
 ```
 
-The production build will be a manually installed, signed APK. It will not be submitted to Google Play. The release signing key must be preserved securely because future APK updates must use the same key.
+The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`. A copy of the latest local-only debug APK is kept at the repository root as `kNupdate-debug.apk` for direct installation.
 
-## Backend development
+## Deliberately deferred
 
-The backend is a small Kotlin/Ktor service backed by PostgreSQL. During local development only, the OTP boundary uses the fixed code `9620` so the app can be built and tested without paying for SMS delivery. Start local development with `APP_ENV=development`; the server defaults to production behaviour when that variable is absent, so the fixed code cannot activate accidentally.
+Connections, cloud sync, notifications, accounts, profiles, authentication, activity expiry, and remote persistence are intentionally deferred. They should only be added after the local interaction model is stable.
 
-Production configuration must be provided through environment variables or a secret manager. Never commit real OTP credentials, FCM credentials, phone numbers, database credentials, signing keys, APK user data, or database backups.
+## Repository layout
 
-See [infra/.env.example](infra/.env.example) for the names of configuration values. A production OTP provider will incur provider-specific SMS and/or verification charges; its choice is intentionally deferred until the local product loop works.
-
-Run the development backend with the fixed OTP:
-
-```sh
-APP_ENV=development APP_HOST=0.0.0.0 DEVELOPMENT_OTP=9620 ./gradlew :backend:run
-```
-
-The Android debug build defaults to `http://10.0.2.2:8080`, which reaches a backend running on the host machine from an Android emulator. For a physical phone, build with the computer's LAN address instead:
-
-```sh
-./gradlew assembleDebug -PKNUPDATE_API_BASE_URL=http://192.168.1.10:8080
-```
-
-The phone and computer must be on the same network, the backend must bind to `APP_HOST=0.0.0.0`, and the firewall must allow the port. The debug manifest allows local HTTP only; release builds must use an HTTPS backend.
-
-## Privacy and deletion
-
-The backend is the source of truth for access control and expiry. The client hides records once their expiry time passes, while a scheduled backend worker permanently deletes expired activities and dependent delivery data at least every 15 minutes.
-
-There is no archive, restore, export, history, soft-delete table, retained activity log, or activity-specific public URL. See [docs/privacy-and-deletion.md](docs/privacy-and-deletion.md).
-
-## Release checklist
-
-- [ ] Run the complete test suite from a clean checkout.
-- [ ] Build a signed release APK.
-- [ ] Verify the APK installs on a supported Android device.
-- [ ] Verify a later APK signed with the same key updates an existing installation.
-- [ ] Publish the APK checksum alongside the private or unlisted release.
-- [ ] Confirm production secrets and signing material are outside the repository.
-- [ ] Verify expiry deletion directly in the production database and relevant infrastructure stores.
-- [ ] Confirm the non-goals below are still true.
-
-## Permanent non-goals
-
-Do not add public accounts, user search, contact import, one-way follows, follower counts, likes, comments, replies, reposts, saves, DMs, media, links, captions, tags, location, third-party activity proofs, GPS, rankings, recommendations, analytics, ads, monetisation, social sharing, archive, history, statistics, streaks, challenges, leaderboards, web, iOS, or growth prompts.
-
-The app's restraint is part of its functionality. Security patches, compatibility fixes, and narrowly scoped correctness fixes are acceptable; turning kNupdate into a general social product is not.
+- `app/` — the Android application.
+- `roadmap.md` — the short implementation plan for the local-first version.
+- `gradle/` — Gradle wrapper and dependency catalog.
 
 ## License
 
