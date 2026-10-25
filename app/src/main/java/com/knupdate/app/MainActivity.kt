@@ -426,10 +426,9 @@ private fun TimeValuePicker(
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val listState = rememberLazyListState()
-    LaunchedEffect(selected) {
-        listState.animateScrollToItem((selected - 2).coerceAtLeast(0))
-    }
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = (selected - 2).coerceAtLeast(0)
+    )
 
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
