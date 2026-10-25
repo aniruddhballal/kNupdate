@@ -3,8 +3,9 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- Block-built kN mark matching mp3fy's logo proportions and stroke weight. -->
     <path
         android:fillColor="#000000"
         android:fillType="nonZero"
-        android:pathData="M39,40h4v28h-4zM43,53L50,43h5L47,54l8,14h-5L43,57zM57,40h5l7,15V40h4v28h-5l-7,-15v15h-4z" />
+        android:pathData="M31,44h5v20h-5zM35,51h6v4h-6zM39,48h6v4h-6zM43,46h5v4h-5zM35,53h6v4h-6zM39,56h6v5h-6zM43,60h5v4h-5zM54,44h5v20h-5zM72,44h5v20h-5zM57,44h6v5h-6zM60,48h6v5h-6zM63,52h6v5h-6zM66,56h6v5h-6zM69,60h6v4h-6z" />
 </vector>
