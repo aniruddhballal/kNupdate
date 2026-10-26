@@ -19,7 +19,8 @@
 
 ## Deployment and device acceptance
 
-- Deploy to a permanent Cloudflare Workers Free account or claim an available temporary preview.
+- [x] Claim the deployed Cloudflare relay account (26 October 2026).
+- [x] Pass HTTP integration and Android client/SQLite round-trip tests against the claimed live endpoint.
 - Install the configured APK on at least two phones.
 - Verify notification permissions, screen-off receiving, internet toggling and OEM battery behavior.
 - Verify Android foreground-service timeout and explicit restart on a physical device.
