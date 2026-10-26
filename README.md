@@ -2,6 +2,8 @@
 
 An Android app for public, live activity broadcasts with local sent and received histories. This prototype has no accounts or connection graph. Every phone using the same relay and actively receiving is eligible for new updates.
 
+The app displays its version beside `kN`. Android metadata and the UI share `version.properties`; each app artifact build advances the patch version by default. See [VERSIONING.md](VERSIONING.md) for the historical calculation and major/minor build options.
+
 ## Behavior
 
 1. Choose an activity, its detail, and a time or time range for today. `Run / 5k` is included.

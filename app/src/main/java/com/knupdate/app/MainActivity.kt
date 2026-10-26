@@ -150,13 +150,23 @@ private fun ScreenHeader(label: String?) {
             .padding(top = 10.dp, bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text(
-            text = "kN",
-            color = Ink,
-            fontSize = 30.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = (-1).sp
-        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = "kN",
+                color = Ink,
+                fontSize = 30.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = (-1).sp,
+                modifier = Modifier.alignByBaseline()
+            )
+            Text(
+                text = "v${BuildConfig.VERSION_NAME}",
+                color = Muted,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Normal,
+                modifier = Modifier.alignByBaseline()
+            )
+        }
         label?.let {
             Text(
                 text = it,

@@ -43,3 +43,6 @@ local.properties
 /backend/logs
 /backend/node_modules/
 /backend/.wrangler/
+/buildSrc/build/
+/version.properties.lock
+/.version-*.tmp

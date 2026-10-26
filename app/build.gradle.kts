@@ -1,10 +1,25 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import com.knupdate.build.AppVersion
 
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
+
+val versionFile = rootProject.file("version.properties").toPath()
+val buildsAppArtifact = gradle.startParameter.taskNames.any(AppVersion::buildsAppArtifact) && !gradle.startParameter.isDryRun
+// Always reserve before Android config captures metadata. Sync/lint/tests only read.
+// This build script intentionally runs without configuration-cache reuse: every APK needs a reservation.
+if (buildsAppArtifact && gradle.startParameter.isConfigurationCacheRequested) {
+    throw GradleException("Automatic APK versioning requires --no-configuration-cache for artifact builds.")
+}
+val appVersion = if (buildsAppArtifact) {
+    AppVersion.reserve(versionFile, providers.gradleProperty("versionBump").getOrElse("patch"))
+} else {
+    AppVersion.read(versionFile)
+}
+if (buildsAppArtifact) logger.lifecycle("kNupdate build version: ${appVersion.name} (code ${appVersion.code})")
 
 android {
     namespace = "com.knupdate.app"
@@ -14,8 +29,8 @@ android {
         applicationId = "com.knupdate.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = appVersion.code
+        versionName = appVersion.name
         val relayUrl = providers.gradleProperty("relayUrl").orElse(providers.environmentVariable("KNUPDATE_RELAY_URL")).orElse("").get()
         buildConfigField("String", "RELAY_URL", "\"${relayUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
 
