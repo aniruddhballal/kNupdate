@@ -9,7 +9,7 @@ The app displays its version beside `kN`. Android metadata and the UI share `ver
 1. Choose an activity, its detail, and a time or time range for today. `Run / 5k` is included.
 2. Sending commits a copy to the phone's SQLite history before posting the activity to the relay. The local display name is never included.
 3. Receiving uses a user-started foreground service with a persistent notification and 25-second HTTP long polls. A response returns immediately when an update arrives.
-   **Stop receiving** immediately clears the local receiving state and invalidates callbacks from that receiver run. Closing the old network connection and notifying the relay happen separately, so a failed or pending poll cannot change the stopped screen back to retrying.
+   Turning the header switch off, or choosing **Stop receiving** in the notification, immediately clears the local receiving state and invalidates callbacks from that receiver run. Closing the old network connection and notifying the relay happen separately, so a failed or pending poll cannot change the stopped state back to retrying.
 4. The relay snapshots active random listener sessions when the activity arrives. A five-second lease covers the gap between polls. New listeners are not added to an existing update.
 5. Each recipient commits its copy to local SQLite, then acknowledges it. Repeated delivery after a lost acknowledgement does not create another local entry or notification.
 6. The last required acknowledgement removes the relay's copy. A 30-second expiry removes unacknowledged copies; no listeners means immediate disposal. Concurrent activities have independent lifetimes.
@@ -84,15 +84,17 @@ On each phone:
 
 1. Install the APK and enter a local display name.
 2. The provided APK already contains the relay address; no server setup is needed on the phone.
-3. Enable notifications and choose **Start receiving**. The persistent notification includes a stop action.
-4. Send an activity from another phone. Check **Inbox** and the notification on recipients, and **Sent** on the sender.
+3. Turn on the black-and-white switch at the right of the header. On Android 13+, the app requests notification permission if needed; receiving still starts if permission is declined. The persistent notification includes a stop action. Notification alerts can also be enabled later in Android's app notification settings.
+4. Use the **plus** icon to compose an activity, the **paper-plane** icon to view sent activities, and the **postbox** icon for Inbox. Send an activity from another phone and check the recipient's Inbox and notification.
 5. Turn a recipient's internet off, send another activity, and reconnect. That activity should not be offered to its new listener session.
 
 Android does not permit a guarantee of constant background polling. Android 15+ limits a background `dataSync` foreground service to six hours per 24-hour window, with resets when the user brings the app to the foreground. Doze, force-stop, process termination and manufacturer battery policies can also interrupt receiving. The service stops cleanly on a platform timeout, does not secretly restart at boot, and must be started again from the app. Internet connectivity alone is not enough to guarantee reception. Notifications can be denied while received activities still save to Inbox.
 
 ## App controls and status labels
 
-The app shows controls, activity content, and brief operational status. Setup explanations, delivery semantics, and privacy details live in this README. The Relay page contains receiving status, Start/Stop, and notification permission when needed. There are no server configuration controls, Advanced page, help button, or information panel.
+The app shows activity content and three icon tabs: plus (new), paper plane (sent), and postbox (Inbox). The selected icon has a black background. The receiving switch sits at the right of the header on all three screens: white track with a black thumb on the left is off; black track with a white thumb on the right is on. On means the receiving service is enabled; network access and delivery remain best effort. The activity list and composer choices are unchanged.
+
+Screen-reader labels identify all three tabs and the receiving switch. Its accessible state includes short receiving status such as Off, Listening, Offline or Retrying. There is no separate Relay tab. Setup explanations, delivery semantics, and privacy details live in this README; there are no server configuration controls, Advanced page, help button, or information panel.
 
 | Label | Meaning |
 | --- | --- |
@@ -154,7 +156,7 @@ adb shell am instrument -w -r -e class com.knupdate.app.DevicePrivacyTest com.kn
 adb uninstall com.knupdate.app.test
 ```
 
-The device audit confirmed backup disabled in the installed APK, one locally retained send accepted with zero listeners, and the synthetic received activity persisted after the receiving process restarted. It does not inspect or prove erasure within Cloudflare's internal infrastructure.
+The device audit confirmed backup disabled in the installed APK, one locally retained send accepted with zero listeners, and the synthetic received activity persisted after the receiving process restarted. It does not inspect or prove erasure within Cloudflare's internal infrastructure. After an instrumentation run, the header switch can be used to restart receiving.
 
 ## Relay API
 

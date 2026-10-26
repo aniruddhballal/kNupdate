@@ -33,11 +33,16 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -54,6 +59,11 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.text.KeyboardActions
@@ -133,7 +143,7 @@ private fun KNupdateApp(showInbox: Boolean, onInboxOpened: () -> Unit) {
 }
 
 @Composable
-private fun ScreenHeader() {
+private fun ScreenHeader(trailing: (@Composable () -> Unit)? = null) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -148,22 +158,66 @@ private fun ScreenHeader() {
             .padding(top = 10.dp, bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                text = "kN",
-                color = Ink,
-                fontSize = 30.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = (-1).sp,
-                modifier = Modifier.alignByBaseline()
-            )
-            Text(
-                text = "v${BuildConfig.VERSION_NAME}",
-                color = Muted,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Normal,
-                modifier = Modifier.alignByBaseline()
-            )
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "kN",
+                    color = Ink,
+                    fontSize = 30.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = (-1).sp,
+                    modifier = Modifier.alignByBaseline()
+                )
+                Text(
+                    text = "v${BuildConfig.VERSION_NAME}",
+                    color = Muted,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Normal,
+                    modifier = Modifier.alignByBaseline()
+                )
+            }
+            trailing?.invoke()
+        }
+    }
+}
+
+@Composable
+private fun ReceivingToggle(receiver: ReceiverState, onChange: (Boolean) -> Unit) {
+    Box(modifier = Modifier.size(width = 52.dp, height = 48.dp)
+        .semantics {
+            contentDescription = "Receive updates"
+            stateDescription = receiver.label
+        }
+        .toggleable(value = receiver.running, enabled = receiver.running || RelaySettings.url().isNotBlank(),
+            role = Role.Switch, onValueChange = onChange), contentAlignment = Alignment.Center) {
+        Box(modifier = Modifier.size(width = 40.dp, height = 24.dp)
+            .background(if (receiver.running) Ink else Paper, CircleShape)
+            .border(1.dp, Ink, CircleShape)) {
+            Box(modifier = Modifier.offset(x = if (receiver.running) 20.dp else 4.dp, y = 4.dp)
+                .size(16.dp).background(if (receiver.running) Paper else Ink, CircleShape))
+        }
+    }
+}
+
+@Composable
+private fun IconNavigation(selected: String, onSelect: (String) -> Unit) {
+    val items = listOf(
+        Triple("New", "New activity", R.drawable.ic_add),
+        Triple("Sent", "Sent activities", R.drawable.ic_sent),
+        Triple("Inbox", "Inbox", R.drawable.ic_postbox)
+    )
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly) {
+        items.forEach { (key, description, icon) ->
+            val active = selected == key
+            Box(modifier = Modifier.size(48.dp).background(if (active) Ink else Paper)
+                .semantics { contentDescription = description }
+                .selectable(selected = active, role = Role.Tab, onClick = { onSelect(key) }),
+                contentAlignment = Alignment.Center) {
+                Icon(painter = painterResource(icon), contentDescription = null,
+                    tint = if (active) Paper else Ink, modifier = Modifier.size(26.dp))
+            }
         }
     }
 }
@@ -221,7 +275,8 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
     val receiver by ReceiverStatus.state.collectAsState()
     val sending by SendCoordinator.sending.collectAsState()
     val sendError by SendCoordinator.error.collectAsState()
-    var tab by rememberSaveable { mutableStateOf(if (RelaySettings.url().isBlank()) "Relay" else "New") }
+    var tab by rememberSaveable { mutableStateOf("New") }
+    var receiverError by rememberSaveable { mutableStateOf<String?>(null) }
     var ready by remember { mutableStateOf(false) }
     var loadError by remember { mutableStateOf<String?>(null) }
     val defaultTime = remember { currentTimeMinutes() }
@@ -236,7 +291,26 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
     val selectedActivity = ACTIVITY_OPTIONS.first { it.id == selectedActivityId }
     val lastSent = updates.firstOrNull { it.id == lastSentId }
 
+    fun startReceiving() {
+        try {
+            ContextCompat.startForegroundService(context, Intent(context, ReceiverService::class.java))
+        } catch (_: Exception) { receiverError = "Could not start receiving." }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        startReceiving()
+    }
+
+    fun changeReceiving(enabled: Boolean) {
+        receiverError = null
+        if (!enabled) ReceiverService.stop(context)
+        else if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else startReceiving()
+    }
+
     LaunchedEffect(Unit) {
+        if (tab !in listOf("New", "Sent", "Inbox")) tab = "New"
         try { withContext(Dispatchers.IO) { store.load() }; ready = true }
         catch (_: Exception) { loadError = "History unavailable." }
     }
@@ -255,7 +329,7 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
 
     fun saveUpdate() {
         if (!ready || sending) return
-        if (RelaySettings.url().isBlank()) { tab = "Relay"; return }
+        if (RelaySettings.url().isBlank()) { receiverError = "Unavailable"; return }
         val now = currentTimeMinutes()
         when {
             startMinutes > now || (selectedActivity.timeMode == TimeMode.RANGE && endMinutes > now) -> {
@@ -277,18 +351,12 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
     }
 
     Column(modifier = Modifier.fillMaxSize().background(Paper).statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp)) {
-        ScreenHeader()
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            listOf("New", "Sent", "Inbox", "Relay").forEach { label ->
-                Text(label.uppercase(), color = if (tab == label) Ink else Muted,
-                    fontSize = 11.sp, fontWeight = if (tab == label) FontWeight.Bold else FontWeight.Normal,
-                    modifier = Modifier.clickable { tab = label }.padding(vertical = 18.dp, horizontal = 8.dp))
-            }
-        }
+        ScreenHeader { ReceivingToggle(receiver, ::changeReceiving) }
+        IconNavigation(selected = tab, onSelect = { tab = it })
         loadError?.let { Text(it, color = Color(0xFFB3261E), fontSize = 13.sp) }
+        receiverError?.let { Text(it, color = Color(0xFFB3261E), fontSize = 13.sp) }
         when (tab) {
             "Sent", "Inbox" -> HistoryList(updates.filter { it.direction == if (tab == "Sent") "sent" else "received" })
-            "Relay" -> RelayScreen(receiver)
             else -> Column(modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 28.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 SectionLabel("ACTIVITY")
@@ -344,35 +412,6 @@ private fun HistoryList(records: List<ActivityRecord>) {
                 if (record.direction == "sent") Text(deliveryText(record), color = Muted, fontSize = 12.sp)
             }
         }
-    }
-}
-
-@Composable
-private fun RelayScreen(receiver: ReceiverState) {
-    val context = LocalContext.current
-    var notificationsGranted by remember {
-        mutableStateOf(Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
-    }
-    var message by rememberSaveable { mutableStateOf<String?>(null) }
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        notificationsGranted = granted
-    }
-    Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text(receiver.label, color = Ink, fontSize = 14.sp, fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(top = 8.dp))
-        BlackButton(if (receiver.running) "STOP RECEIVING" else "START RECEIVING",
-            enabled = receiver.running || RelaySettings.url().isNotBlank(), onClick = {
-                message = null
-                if (receiver.running) ReceiverService.stop(context)
-                else try {
-                    ContextCompat.startForegroundService(context, Intent(context, ReceiverService::class.java))
-                } catch (_: Exception) { message = "Could not start receiving." }
-            }, modifier = Modifier.fillMaxWidth())
-        if (Build.VERSION.SDK_INT >= 33 && !notificationsGranted) {
-            BlackButton("ENABLE NOTIFICATIONS", onClick = { permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }, modifier = Modifier.fillMaxWidth())
-        }
-        message?.let { Text(it, color = Muted, fontSize = 13.sp) }
     }
 }
 
