@@ -24,7 +24,7 @@ object SendCoordinator {
                 val store = ActivityStore.get(appContext)
                 // A durable local copy is required before any network request.
                 if (!store.insert(record)) return@launch
-                val url = RelaySettings.url(appContext)
+                val url = RelaySettings.url()
                 if (url.isBlank()) { store.updateStatus(record.id, "local"); return@launch }
                 try {
                     val result = RelayClient(url).publish(record, ReceiverStatus.session)

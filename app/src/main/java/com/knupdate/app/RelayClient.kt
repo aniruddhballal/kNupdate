@@ -1,6 +1,5 @@
 package com.knupdate.app
 
-import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -14,8 +13,7 @@ import java.net.URL
 class RelayAccessException(message: String) : IOException(message)
 
 object RelaySettings {
-    fun url(context: Context): String = context.getSharedPreferences("relay", 0)
-        .getString("url", BuildConfig.RELAY_URL).orEmpty()
+    fun url(): String = BuildConfig.RELAY_URL
 
     fun normalizeUrl(value: String): String {
         val uri = URI(value.trim())
@@ -30,9 +28,6 @@ object RelaySettings {
         return uri.toString().trimEnd('/')
     }
 
-    fun save(context: Context, value: String) {
-        check(context.getSharedPreferences("relay", 0).edit().putString("url", normalizeUrl(value)).commit())
-    }
 }
 
 class RelayClient(private val baseUrl: String) {

@@ -120,4 +120,12 @@ class ActivityStoreTest {
             assertThrows(Exception::class.java) { RelaySettings.normalizeUrl(url) }
         }
     }
+
+    @Test fun legacyPhonePreferenceCannotOverrideTheBuiltInRelay() {
+        val preferences = context.getSharedPreferences("relay", 0)
+        preferences.edit().putString("url", "https://old-relay.example").commit()
+        try {
+            assertEquals(BuildConfig.RELAY_URL, RelaySettings.url())
+        } finally { preferences.edit().clear().commit() }
+    }
 }

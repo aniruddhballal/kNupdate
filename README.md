@@ -78,12 +78,12 @@ To bake the deployed public endpoint into a build:
 .\gradlew.bat assembleDebug "-PrelayUrl=https://knupdate-relay.<your-subdomain>.workers.dev"
 ```
 
-Alternatively set `KNUPDATE_RELAY_URL` when building, or open **Relay → Advanced** to enter a different endpoint. **Save** checks the relay's health/protocol response before saving the address on that phone; it does not test complete message delivery. Stop receiving before changing endpoints. Production builds require HTTPS; debug builds also allow HTTP to local development addresses.
+The deployed relay is the default in `app/build.gradle.kts`, so a normal build already points to it. Developers can override it with `-PrelayUrl` or `KNUPDATE_RELAY_URL` when building. The address is compiled into the APK; there is no URL editor, Save control, or Advanced page in the app. Changing the relay requires rebuilding and installing an updated APK. Old relay preferences saved by earlier versions are ignored. Production builds require HTTPS; debug builds also allow HTTP to local development addresses.
 
 On each phone:
 
 1. Install the APK and enter a local display name.
-2. The provided APK already contains the deployed relay address. To change it, use **Relay → Advanced → Save** while receiving is off.
+2. The provided APK already contains the relay address; no server setup is needed on the phone.
 3. Enable notifications and choose **Start receiving**. The persistent notification includes a stop action.
 4. Send an activity from another phone. Check **Inbox** and the notification on recipients, and **Sent** on the sender.
 5. Turn a recipient's internet off, send another activity, and reconnect. That activity should not be offered to its new listener session.
@@ -92,7 +92,7 @@ Android does not permit a guarantee of constant background polling. Android 15+ 
 
 ## App controls and status labels
 
-The app shows controls, activity content, and brief operational status. Setup explanations, delivery semantics, and privacy details live in this README. There is no in-app help or information panel. The normal Relay page shows receiving status, Start/Stop, notification permission when needed, and an Advanced entry. The relay address and Save control are inside Advanced. If a development build has no configured endpoint, the Relay tab initially opens Advanced.
+The app shows controls, activity content, and brief operational status. Setup explanations, delivery semantics, and privacy details live in this README. The Relay page contains receiving status, Start/Stop, and notification permission when needed. There are no server configuration controls, Advanced page, help button, or information panel.
 
 | Label | Meaning |
 | --- | --- |
@@ -109,7 +109,7 @@ The app shows controls, activity content, and brief operational status. Setup ex
 | Unconfirmed | The send result could not be confirmed. Its local copy remains, and it will not resend automatically. |
 | Local | This history entry is stored only on this phone, such as a migrated entry. |
 
-Inbox rows contain the activity and timestamp; they omit a repeated receipt explanation. A permission denial leaves incoming activities visible in Inbox without notification alerts. In Advanced, Saved means the address passed the health/protocol check and was stored; Could not save relay means validation, connectivity, hosting, protocol checking, or local saving failed. Keep receiving off while editing its endpoint.
+Inbox rows contain the activity and timestamp; they omit a repeated receipt explanation. A permission denial leaves incoming activities visible in Inbox without notification alerts.
 
 Short errors stay in the app when an action cannot proceed. History unavailable or Could not save indicates a local-storage problem; check free storage and restart the app. Time validation requires past times and an end after the start. No history is uploaded for troubleshooting.
 

@@ -109,7 +109,7 @@ class ReceiverService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) { stop(this); return START_NOT_STICKY }
         if (started) return START_NOT_STICKY
-        val url = RelaySettings.url(this)
+        val url = RelaySettings.url()
         if (url.isBlank()) { stopSelf(); return START_NOT_STICKY }
         client = RelayClient(url)
         val run = ReceiverStatus.begin()
@@ -223,7 +223,7 @@ class ReceiverService : Service() {
         fun stop(context: Context) {
             // Stop is a local action. Invalidate callbacks before Android/network cleanup.
             val session = ReceiverStatus.end()
-            val url = RelaySettings.url(context)
+            val url = RelaySettings.url()
             context.stopService(Intent(context, ReceiverService::class.java))
             if (session != null && url.isNotBlank()) cleanupScope.launch {
                 runCatching { RelayClient(url).close(session) }

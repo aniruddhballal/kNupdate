@@ -6,7 +6,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
@@ -44,7 +43,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -71,7 +69,6 @@ import androidx.core.content.ContextCompat
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
@@ -224,7 +221,7 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
     val receiver by ReceiverStatus.state.collectAsState()
     val sending by SendCoordinator.sending.collectAsState()
     val sendError by SendCoordinator.error.collectAsState()
-    var tab by rememberSaveable { mutableStateOf(if (RelaySettings.url(context).isBlank()) "Relay" else "New") }
+    var tab by rememberSaveable { mutableStateOf(if (RelaySettings.url().isBlank()) "Relay" else "New") }
     var ready by remember { mutableStateOf(false) }
     var loadError by remember { mutableStateOf<String?>(null) }
     val defaultTime = remember { currentTimeMinutes() }
@@ -258,7 +255,7 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
 
     fun saveUpdate() {
         if (!ready || sending) return
-        if (RelaySettings.url(context).isBlank()) { tab = "Relay"; return }
+        if (RelaySettings.url().isBlank()) { tab = "Relay"; return }
         val now = currentTimeMinutes()
         when {
             startMinutes > now || (selectedActivity.timeMode == TimeMode.RANGE && endMinutes > now) -> {
@@ -353,7 +350,6 @@ private fun HistoryList(records: List<ActivityRecord>) {
 @Composable
 private fun RelayScreen(receiver: ReceiverState) {
     val context = LocalContext.current
-    var advancedOpen by rememberSaveable { mutableStateOf(RelaySettings.url(context).isBlank()) }
     var notificationsGranted by remember {
         mutableStateOf(Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
     }
@@ -361,17 +357,12 @@ private fun RelayScreen(receiver: ReceiverState) {
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         notificationsGranted = granted
     }
-    BackHandler(enabled = advancedOpen) { advancedOpen = false }
-    if (advancedOpen) {
-        AdvancedRelayScreen(receiver.running, onBack = { advancedOpen = false })
-        return
-    }
     Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(receiver.label, color = Ink, fontSize = 14.sp, fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(top = 8.dp))
         BlackButton(if (receiver.running) "STOP RECEIVING" else "START RECEIVING",
-            enabled = receiver.running || RelaySettings.url(context).isNotBlank(), onClick = {
+            enabled = receiver.running || RelaySettings.url().isNotBlank(), onClick = {
                 message = null
                 if (receiver.running) ReceiverService.stop(context)
                 else try {
@@ -381,38 +372,6 @@ private fun RelayScreen(receiver: ReceiverState) {
         if (Build.VERSION.SDK_INT >= 33 && !notificationsGranted) {
             BlackButton("ENABLE NOTIFICATIONS", onClick = { permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }, modifier = Modifier.fillMaxWidth())
         }
-        message?.let { Text(it, color = Muted, fontSize = 13.sp) }
-        Text("ADVANCED", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold,
-            modifier = Modifier.clickable { advancedOpen = true }.padding(vertical = 16.dp))
-    }
-}
-
-@Composable
-private fun AdvancedRelayScreen(receiving: Boolean, onBack: () -> Unit) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var url by rememberSaveable { mutableStateOf(RelaySettings.url(context)) }
-    var message by rememberSaveable { mutableStateOf<String?>(null) }
-    var saving by remember { mutableStateOf(false) }
-    Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text("BACK", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold,
-            modifier = Modifier.clickable(onClick = onBack).padding(vertical = 16.dp))
-        SectionLabel("RELAY URL")
-        LocalTextField(url, { url = it; message = null }, "https://…", {})
-        BlackButton(if (saving) "CHECKING" else "SAVE", enabled = !saving && !receiving, onClick = {
-            saving = true
-            scope.launch {
-                try {
-                    val normalized = RelaySettings.normalizeUrl(url)
-                    RelayClient(normalized).health()
-                    withContext(Dispatchers.IO) { RelaySettings.save(context, normalized) }
-                    url = normalized
-                    message = "Saved"
-                } catch (_: Exception) { message = "Could not save relay." }
-                finally { saving = false }
-            }
-        }, modifier = Modifier.fillMaxWidth())
         message?.let { Text(it, color = Muted, fontSize = 13.sp) }
     }
 }
