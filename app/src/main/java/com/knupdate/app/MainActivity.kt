@@ -10,6 +10,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -19,6 +23,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -56,8 +62,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -184,18 +192,34 @@ private fun ScreenHeader(trailing: (@Composable () -> Unit)? = null) {
 
 @Composable
 private fun ReceivingToggle(receiver: ReceiverState, onChange: (Boolean) -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val position by animateFloatAsState(
+        targetValue = if (receiver.running) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.9f, stiffness = 450f), label = "Receiving position")
+    val thumbWidth by animateDpAsState(
+        targetValue = if (pressed) 20.dp else 16.dp,
+        animationSpec = spring(dampingRatio = 0.85f, stiffness = 700f), label = "Receiving thumb press")
+    val trackColor by animateColorAsState(
+        targetValue = if (receiver.running) Ink else Paper,
+        animationSpec = tween(180), label = "Receiving track")
+    val thumbColor by animateColorAsState(
+        targetValue = if (receiver.running) Paper else Ink,
+        animationSpec = tween(180), label = "Receiving thumb")
     Box(modifier = Modifier.size(width = 52.dp, height = 48.dp)
         .semantics {
             contentDescription = "Receive updates"
             stateDescription = receiver.label
         }
         .toggleable(value = receiver.running, enabled = receiver.running || RelaySettings.url().isNotBlank(),
+            interactionSource = interaction, indication = null,
             role = Role.Switch, onValueChange = onChange), contentAlignment = Alignment.Center) {
         Box(modifier = Modifier.size(width = 40.dp, height = 24.dp)
-            .background(if (receiver.running) Ink else Paper, CircleShape)
+            .clip(CircleShape).background(trackColor)
             .border(1.dp, Ink, CircleShape)) {
-            Box(modifier = Modifier.offset(x = if (receiver.running) 20.dp else 4.dp, y = 4.dp)
-                .size(16.dp).background(if (receiver.running) Paper else Ink, CircleShape))
+            Box(modifier = Modifier.offset(x = 4.dp + (32.dp - thumbWidth) * position.coerceIn(0f, 1f), y = 4.dp)
+                .size(width = thumbWidth, height = 16.dp)
+                .background(thumbColor, CircleShape).border(0.8.dp, Ink, CircleShape))
         }
     }
 }
@@ -211,12 +235,26 @@ private fun IconNavigation(selected: String, onSelect: (String) -> Unit) {
         horizontalArrangement = Arrangement.SpaceEvenly) {
         items.forEach { (key, description, icon) ->
             val active = selected == key
+            val interaction = remember { MutableInteractionSource() }
+            val pressed by interaction.collectIsPressedAsState()
+            val pressScale by animateFloatAsState(
+                targetValue = if (pressed) 0.88f else 1f,
+                animationSpec = if (pressed) tween(70) else spring(dampingRatio = 0.7f, stiffness = 700f),
+                label = "Navigation icon press")
+            val pressAlpha by animateFloatAsState(
+                targetValue = if (pressed) 0.65f else 1f,
+                animationSpec = tween(100), label = "Navigation icon opacity")
             Box(modifier = Modifier.size(48.dp).background(if (active) Ink else Paper)
                 .semantics { contentDescription = description }
-                .selectable(selected = active, role = Role.Tab, onClick = { onSelect(key) }),
+                .selectable(selected = active, interactionSource = interaction, indication = null,
+                    role = Role.Tab, onClick = { onSelect(key) }),
                 contentAlignment = Alignment.Center) {
                 Icon(painter = painterResource(icon), contentDescription = null,
-                    tint = if (active) Paper else Ink, modifier = Modifier.size(26.dp))
+                    tint = if (active) Paper else Ink, modifier = Modifier.size(26.dp).graphicsLayer {
+                        scaleX = pressScale
+                        scaleY = pressScale
+                        alpha = pressAlpha
+                    })
             }
         }
     }

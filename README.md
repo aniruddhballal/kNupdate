@@ -92,7 +92,7 @@ Android does not permit a guarantee of constant background polling. Android 15+ 
 
 ## App controls and status labels
 
-The app shows activity content and three icon tabs: plus (new), paper plane (sent), and postbox (Inbox). The selected icon has a black background. The receiving switch sits at the right of the header on all three screens: white track with a black thumb on the left is off; black track with a white thumb on the right is on. On means the receiving service is enabled; network access and delivery remain best effort. The activity list and composer choices are unchanged.
+The app shows activity content and three icon tabs: plus (new), paper plane (sent), and postbox (Inbox). The selected icon has a black background. Taps animate the icon's scale and opacity rather than drawing a rectangular ripple. The receiving switch sits at the right of the header on all three screens: white track with a black thumb on the left is off; black track with a white thumb on the right is on. Its thumb moves with a damped spring, gently widens while pressed, and transitions with the track colors inside the pill shape. On means the receiving service is enabled; network access and delivery remain best effort. The activity list and composer choices are unchanged.
 
 Screen-reader labels identify all three tabs and the receiving switch. Its accessible state includes short receiving status such as Off, Listening, Offline or Retrying. There is no separate Relay tab. Setup explanations, delivery semantics, and privacy details live in this README; there are no server configuration controls, Advanced page, help button, or information panel.
 
