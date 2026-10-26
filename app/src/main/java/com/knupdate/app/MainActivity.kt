@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
@@ -135,7 +136,7 @@ private fun KNupdateApp(showInbox: Boolean, onInboxOpened: () -> Unit) {
 }
 
 @Composable
-private fun ScreenHeader(label: String?) {
+private fun ScreenHeader() {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -167,15 +168,6 @@ private fun ScreenHeader(label: String?) {
                 modifier = Modifier.alignByBaseline()
             )
         }
-        label?.let {
-            Text(
-                text = it,
-                color = Ink,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.5.sp
-            )
-        }
     }
 }
 
@@ -192,7 +184,7 @@ private fun NameSetupScreen(onSave: (String) -> Unit) {
             .padding(horizontal = 20.dp),
         horizontalAlignment = Alignment.Start
     ) {
-        ScreenHeader(label = "YOUR PHONE")
+        ScreenHeader()
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -207,12 +199,6 @@ private fun NameSetupScreen(onSave: (String) -> Unit) {
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = (-0.5).sp
-            )
-            Text(
-                text = "Your name stays on this phone. Activities are shared publicly without your name while you send them.",
-                color = Ink,
-                fontSize = 15.sp,
-                lineHeight = 22.sp
             )
             LocalTextField(
                 value = name,
@@ -255,7 +241,7 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
 
     LaunchedEffect(Unit) {
         try { withContext(Dispatchers.IO) { store.load() }; ready = true }
-        catch (_: Exception) { loadError = "Could not open local history. Restart the app before sending." }
+        catch (_: Exception) { loadError = "History unavailable." }
     }
     LaunchedEffect(showInbox) {
         if (showInbox) { tab = "Inbox"; onInboxOpened() }
@@ -276,10 +262,10 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
         val now = currentTimeMinutes()
         when {
             startMinutes > now || (selectedActivity.timeMode == TimeMode.RANGE && endMinutes > now) -> {
-                timeError = "Future times cannot be used."; return
+                timeError = "Choose a past time."; return
             }
             selectedActivity.timeMode == TimeMode.RANGE && endMinutes <= startMinutes -> {
-                timeError = "The end time must be after the start time."; return
+                timeError = "End must be after start."; return
             }
         }
         val zone = ZoneId.systemDefault()
@@ -294,7 +280,7 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
     }
 
     Column(modifier = Modifier.fillMaxSize().background(Paper).statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp)) {
-        ScreenHeader(label = null)
+        ScreenHeader()
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             listOf("New", "Sent", "Inbox", "Relay").forEach { label ->
                 Text(label.uppercase(), color = if (tab == label) Ink else Muted,
@@ -304,11 +290,10 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
         }
         loadError?.let { Text(it, color = Color(0xFFB3261E), fontSize = 13.sp) }
         when (tab) {
-            "Sent", "Inbox" -> HistoryList(updates.filter { it.direction == if (tab == "Sent") "sent" else "received" }, tab)
+            "Sent", "Inbox" -> HistoryList(updates.filter { it.direction == if (tab == "Sent") "sent" else "received" })
             "Relay" -> RelayScreen(receiver)
             else -> Column(modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 28.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text(if (receiver.running) receiver.message else "Receiving is off. Start it in Relay to get updates.", color = Muted, fontSize = 12.sp)
                 SectionLabel("ACTIVITY")
                 ActivityOptionList(selectedActivityId) { selectedActivityId = it }
                 SectionLabel("DETAIL")
@@ -323,11 +308,10 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
                     }
                 }
                 timeError?.let { Text(it, color = Color(0xFFB3261E), fontSize = 13.sp) }
-                Text("Shared publicly without your name with everyone listening now. Offline phones miss it.", color = Muted, fontSize = 12.sp)
                 if (ready && !sending) UpdateButton(updateButtonSuccess, ::saveUpdate, Modifier.fillMaxWidth())
                 else BlackButton(if (sending) "SENDING" else "LOADING", enabled = false, onClick = {}, modifier = Modifier.fillMaxWidth())
                 lastSent?.let { Text(deliveryText(it), color = Muted, fontSize = 13.sp) }
-                sendError?.let { Text(it, color = Color(0xFFB3261E), fontSize = 13.sp) }
+                sendError?.let { Text("Could not save.", color = Color(0xFFB3261E), fontSize = 13.sp) }
             }
         }
     }
@@ -342,18 +326,17 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
 }
 
 private fun deliveryText(record: ActivityRecord): String = when (record.status) {
-    "sending" -> "Saved on this phone. Sending to relay..."
-    "sent" -> if (record.listeners == 0) "Sent. Nobody was listening; removed from relay immediately."
-        else "Sent to ${record.listeners} listening phone(s). Receipt is not guaranteed."
-    "uncertain" -> "Saved here. Delivery could not be confirmed; this will not resend automatically."
-    "received" -> "Received and stored on this phone."
-    else -> "Stored on this phone only."
+    "sending" -> "Sending"
+    "sent" -> if (record.listeners == 0) "No listeners" else "Sent · ${record.listeners} listening"
+    "uncertain" -> "Unconfirmed"
+    "received" -> "Received"
+    else -> "Local"
 }
 
 @Composable
-private fun HistoryList(records: List<ActivityRecord>, tab: String) {
+private fun HistoryList(records: List<ActivityRecord>) {
     if (records.isEmpty()) {
-        Text(if (tab == "Sent") "Your sent activities will stay here." else "No received kNupdates. Start receiving in Relay.",
+        Text("No updates",
             color = Muted, fontSize = 14.sp, modifier = Modifier.padding(vertical = 24.dp))
     } else LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         items(records, key = { it.id }) { record ->
@@ -361,7 +344,7 @@ private fun HistoryList(records: List<ActivityRecord>, tab: String) {
                 Text(record.title, color = Ink, fontSize = 17.sp, fontWeight = FontWeight.Bold)
                 Text(record.body, color = Ink, fontSize = 15.sp)
                 Text(record.timeText(), color = Muted, fontSize = 12.sp)
-                Text(deliveryText(record), color = Muted, fontSize = 12.sp)
+                if (record.direction == "sent") Text(deliveryText(record), color = Muted, fontSize = 12.sp)
             }
         }
     }
@@ -370,45 +353,67 @@ private fun HistoryList(records: List<ActivityRecord>, tab: String) {
 @Composable
 private fun RelayScreen(receiver: ReceiverState) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var url by rememberSaveable { mutableStateOf(RelaySettings.url(context)) }
+    var advancedOpen by rememberSaveable { mutableStateOf(RelaySettings.url(context).isBlank()) }
+    var notificationsGranted by remember {
+        mutableStateOf(Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
+    }
     var message by rememberSaveable { mutableStateOf<String?>(null) }
-    var testing by remember { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        message = if (granted) "Notifications enabled. You can start receiving." else "Notifications are off. Received activities will still appear in Inbox."
+        notificationsGranted = granted
+    }
+    BackHandler(enabled = advancedOpen) { advancedOpen = false }
+    if (advancedOpen) {
+        AdvancedRelayScreen(receiver.running, onBack = { advancedOpen = false })
+        return
     }
     Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SectionLabel("PUBLIC RELAY")
-        Text("Updates are public and temporarily readable without your name. Sent and received histories stay on this phone.", color = Ink, fontSize = 15.sp)
-        LocalTextField(url, { url = it }, "https://knupdate-relay...workers.dev", {})
-        BlackButton(if (testing) "CHECKING" else "SAVE & CHECK RELAY", enabled = !testing && !receiver.running, onClick = {
-            testing = true
+        Text(receiver.label, color = Ink, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(top = 8.dp))
+        BlackButton(if (receiver.running) "STOP RECEIVING" else "START RECEIVING",
+            enabled = receiver.running || RelaySettings.url(context).isNotBlank(), onClick = {
+                message = null
+                if (receiver.running) ReceiverService.stop(context)
+                else try {
+                    ContextCompat.startForegroundService(context, Intent(context, ReceiverService::class.java))
+                } catch (_: Exception) { message = "Could not start receiving." }
+            }, modifier = Modifier.fillMaxWidth())
+        if (Build.VERSION.SDK_INT >= 33 && !notificationsGranted) {
+            BlackButton("ENABLE NOTIFICATIONS", onClick = { permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }, modifier = Modifier.fillMaxWidth())
+        }
+        message?.let { Text(it, color = Muted, fontSize = 13.sp) }
+        Text("ADVANCED", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold,
+            modifier = Modifier.clickable { advancedOpen = true }.padding(vertical = 16.dp))
+    }
+}
+
+@Composable
+private fun AdvancedRelayScreen(receiving: Boolean, onBack: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var url by rememberSaveable { mutableStateOf(RelaySettings.url(context)) }
+    var message by rememberSaveable { mutableStateOf<String?>(null) }
+    var saving by remember { mutableStateOf(false) }
+    Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text("BACK", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+            modifier = Modifier.clickable(onClick = onBack).padding(vertical = 16.dp))
+        SectionLabel("RELAY URL")
+        LocalTextField(url, { url = it; message = null }, "https://…", {})
+        BlackButton(if (saving) "CHECKING" else "SAVE", enabled = !saving && !receiving, onClick = {
+            saving = true
             scope.launch {
                 try {
                     val normalized = RelaySettings.normalizeUrl(url)
                     RelayClient(normalized).health()
                     withContext(Dispatchers.IO) { RelaySettings.save(context, normalized) }
                     url = normalized
-                    message = "Relay connected. Use the same relay on every phone."
-                } catch (error: Exception) { message = error.message ?: "Could not connect to relay." }
-                finally { testing = false }
+                    message = "Saved"
+                } catch (_: Exception) { message = "Could not save relay." }
+                finally { saving = false }
             }
         }, modifier = Modifier.fillMaxWidth())
-        Text(receiver.message, color = Ink, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-        BlackButton(if (receiver.running) "STOP RECEIVING" else "START RECEIVING",
-            enabled = receiver.running || RelaySettings.url(context).isNotBlank(), onClick = {
-                if (receiver.running) ReceiverService.stop(context)
-                else try {
-                    ContextCompat.startForegroundService(context, Intent(context, ReceiverService::class.java))
-                } catch (_: Exception) { message = "Android could not start receiving. Reopen the app and try again." }
-            }, modifier = Modifier.fillMaxWidth())
-        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            BlackButton("ENABLE NOTIFICATIONS", onClick = { permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }, modifier = Modifier.fillMaxWidth())
-        }
         message?.let { Text(it, color = Muted, fontSize = 13.sp) }
-        Text("Keep receiving on to be eligible for new updates. A persistent notification lets you stop it. Android may pause receiving when the phone sleeps, the app is stopped, or its background time limit is reached. Open the app to restart it. Being connected to the internet alone does not guarantee receipt.", color = Muted, fontSize = 13.sp, lineHeight = 20.sp)
-        Text("The relay removes an update after all listening phones confirm storage, or after 30 seconds. Offline phones do not catch up later. Activities are plaintext at the relay; HTTPS protects transport.", color = Muted, fontSize = 13.sp, lineHeight = 20.sp)
     }
 }
 

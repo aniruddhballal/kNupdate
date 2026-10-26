@@ -29,7 +29,16 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
-data class ReceiverState(val running: Boolean = false, val message: String = "Receiving is off")
+data class ReceiverState(val running: Boolean = false, val message: String = "Receiving is off") {
+    val label: String get() = when {
+        !running -> if (message.startsWith("Android paused")) "Paused" else "Off"
+        message.startsWith("Offline") -> "Offline"
+        message.startsWith("Connecting") -> "Connecting"
+        message.startsWith("Relay unavailable") -> "Retrying"
+        message.startsWith("Relay hosting") -> "Unavailable"
+        else -> "Listening"
+    }
+}
 
 object ReceiverStatus {
     private val mutable = MutableStateFlow(ReceiverState())
@@ -167,8 +176,8 @@ class ReceiverService : Service() {
     }
 
     private fun serviceNotification(message: String) = NotificationCompat.Builder(this, LISTEN_CHANNEL)
-        .setSmallIcon(R.drawable.ic_notification).setContentTitle("kNupdate receiving")
-        .setContentText(message).setContentIntent(openApp(this)).setOngoing(true).setOnlyAlertOnce(true)
+        .setSmallIcon(R.drawable.ic_notification).setContentTitle("kNupdate")
+        .setContentText(ReceiverState(true, message).label).setContentIntent(openApp(this)).setOngoing(true).setOnlyAlertOnce(true)
         .addAction(0, "Stop receiving", PendingIntent.getService(this, 2,
             Intent(this, ReceiverService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE))
         .build()
