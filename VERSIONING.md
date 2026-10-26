@@ -29,6 +29,8 @@ Thus the APK before versioning was introduced maps to **1.1.1**. The next APK, i
 
 ## Future builds
 
+The activity catalog/grid and exact-time controls were first built as **1.2.0 (code 7)**. The subsequent build fixing the Now button's padding is **1.2.1 (code 8)**, the APK published with this activity revamp. These consumed build numbers are retained even though only the final artifact is committed.
+
 Every normal app APK/AAB build reserves the next patch version and increments versionCode once per Gradle invocation. Both debug and release variants in the same invocation share that reservation. This includes full `build`, `assemble`, `bundle`, `package` and `install` artifact tasks, including Android Studio's normal `:app:assembleDebug` invocation. Use complete task names rather than abbreviations.
 
 ```powershell

@@ -32,6 +32,31 @@ class ActivityStoreTest {
         endAt = System.currentTimeMillis() - 1, timeZone = "Asia/Calcutta", direction = direction,
         status = if (direction == "received") "received" else "sending")
 
+    @Test fun exactTimesSurviveWireAndBothLocalHistories() {
+        val exact = record().copy(startAt = 1_761_459_934_567L, endAt = 1_761_459_935_890L)
+        assertTrue(store.insert(exact))
+        val received = ActivityRecord.fromWire(exact.wireJson())
+        assertEquals(exact.startAt, received.startAt)
+        assertEquals(exact.endAt, received.endAt)
+        assertTrue(received.timeText().contains(":34"))
+        store.close()
+        store = ActivityStore(context)
+        store.load()
+        assertEquals(exact.startAt, store.records.value.single().startAt)
+        assertEquals(exact.endAt, store.records.value.single().endAt)
+        store.close()
+        store = ActivityStore(context, "received-precision.db")
+        context.deleteDatabase("received-precision.db")
+        assertTrue(store.insert(received))
+        store.close()
+        store = ActivityStore(context, "received-precision.db")
+        store.load()
+        assertEquals(exact.startAt, store.records.value.single().startAt)
+        assertEquals(exact.endAt, store.records.value.single().endAt)
+        store.close()
+        context.deleteDatabase("received-precision.db")
+    }
+
     @Test fun sentHistorySurvivesReopenAndKeepsDeliveryStatus() {
         val activity = record()
         assertTrue(store.insert(activity))

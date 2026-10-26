@@ -6,7 +6,7 @@ The app displays its version beside `kN`. Android metadata and the UI share `ver
 
 ## Behavior
 
-1. Choose an activity, its detail, and a time or time range for today. `Run / 5k` is included.
+1. Choose a group, an activity from its icon grid, a predefined detail, and a time or time range. `Run / 5k` is included.
 2. Sending commits a copy to the phone's SQLite history before posting the activity to the relay. The local display name is never included.
 3. Receiving uses a user-started foreground service with a persistent notification and 25-second HTTP long polls. A response returns immediately when an update arrives.
    Turning the header switch off, or choosing **Stop receiving** in the notification, immediately clears the local receiving state and invalidates callbacks from that receiver run. Closing the old network connection and notifying the relay happen separately, so a failed or pending poll cannot change the stopped state back to retrying.
@@ -16,6 +16,29 @@ The app displays its version beside `kN`. Android metadata and the UI share `ver
 7. Sent history stays in **Sent**; incoming activity stays in **Inbox**. No offline catch-up or automatic delayed sending is implemented. A failed POST is marked unconfirmed because a network timeout cannot prove whether the server accepted it.
 
 A listener is a random, temporary session handle. It is regenerated when receiving starts or Android reports loss of connectivity. It is not an account, device ID, display name, or profile. Online/offline detection is approximate: a dropped TCP connection cannot always be detected immediately, and the lease deliberately allows a small gap between requests. A failed delivery can remain pending until expiry.
+
+## Activity catalog and times
+
+The app includes 100 predefined activities across ten groups. Both activity and detail are selected from fixed choices; there is no custom activity or free-text detail field. The catalog is bundled with the app in `ActivityCatalog.kt`, with no remote catalog service or dependency on another app. Swipe the group strip horizontally to browse all groups. Selected activities appear as white icons on black tiles; taps compress the rounded tile without a rectangular ripple. Sent and Inbox history rows keep their existing layout.
+
+| Group | Activities |
+| --- | --- |
+| Everyday | Location, Wake up, Sleep, Rest, Eat, Drink, Cook, Bathe, Groom, Get ready |
+| Work | Work, Meeting, Video call, Phone call, Email, Plan, Focus, Present, Interview, Break |
+| Learning | Study, Read, Class, Lecture, Homework, Revision, Exam, Research, Practice, Course |
+| Movement | Exercise, Run, Walk, Cycle, Gym, Yoga, Stretch, Swim, Hike, Sport |
+| Travel | Travel, Commute, Drive, Ride, Bus, Train, Flight, Arrived, Departed, Wait |
+| Leisure | Music, Watch, Game, Create, Write, Photos, Garden, Explore, Event, Relax |
+| Social | Meet, Family, Friends, Date, Visit, Chat, Celebrate, Volunteer, Pet time, Community |
+| Home | Clean, Laundry, Dishes, Tidy, Repair, Move home, Childcare, Pet care, Meal prep, Home admin |
+| Errands | Shop, Groceries, Collect, Delivery, Appointment, Bank, Post office, Fuel / charge, Queue, Haircut |
+| Wellbeing | Meditate, Breathe, Journal, Pray, Health visit, Therapy, Self-care, Recover, Medicine, Check-in |
+
+**At** means one timestamp. Location, Wake up, Drink, Arrived, Departed, Collect, Delivery, Medicine and Check-in default to this. All remaining activities default to **From–to**, including meals, work, study, exercise, travel and sleep. Either mode can be selected for any activity: for example, use At to announce that a run is starting, or From–to to report the completed run. The app rejects future timestamps and ranges whose end is not after the start.
+
+Each time field has its own **Now** button. It captures the device clock at the instant of the tap, including seconds and milliseconds; the value stays fixed until changed. Initial time values also capture the clock when the composer opens or a different activity is chosen. Opening the manual picker and confirming a time instead sets seconds and milliseconds to zero. Exact values pass through the relay and both local histories unchanged; times with sub-minute precision display seconds, while whole-minute times display hours and minutes.
+
+Times retain their selected date, even if midnight passes before sending. The manual picker edits that field's existing date, displayed in its heading; use Now to switch a field to the current date. A previous day's field shows its date in the composer. These controls can represent an overnight range by setting the start before midnight and the end after it, without silently moving the start to another day. There is no general date picker.
 
 ## Storage and privacy
 
@@ -92,7 +115,7 @@ Android does not permit a guarantee of constant background polling. Android 15+ 
 
 ## App controls and status labels
 
-The app shows activity content and three icon tabs: plus (new), paper plane (sent), and postbox (Inbox). The selected icon has a black background. Taps animate the icon's scale and opacity rather than drawing a rectangular ripple. The receiving switch sits at the right of the header on all three screens: white track with a black thumb on the left is off; black track with a white thumb on the right is on. Its thumb moves with a damped spring, gently widens while pressed, and transitions with the track colors inside the pill shape. On means the receiving service is enabled; network access and delivery remain best effort. The activity list and composer choices are unchanged.
+The app shows activity content and three icon tabs: plus (new), paper plane (sent), and postbox (Inbox). The selected icon has a black background. Taps animate the icon's scale and opacity rather than drawing a rectangular ripple. The receiving switch sits at the right of the header on all three screens: white track with a black thumb on the left is off; black track with a white thumb on the right is on. Its thumb moves with a damped spring, gently widens while pressed, and transitions with the track colors inside the pill shape. On means the receiving service is enabled; network access and delivery remain best effort.
 
 Screen-reader labels identify all three tabs and the receiving switch. Its accessible state includes short receiving status such as Off, Listening, Offline or Retrying. There is no separate Relay tab. Setup explanations, delivery semantics, and privacy details live in this README; there are no server configuration controls, Advanced page, help button, or information panel.
 
@@ -136,7 +159,7 @@ These HTTP integration tests create real concurrent long polls, test independent
 
 For a debug emulator, use `http://10.0.2.2:8787`. For a USB-connected phone, run `adb reverse tcp:8787 tcp:8787` and use `http://127.0.0.1:8787`. To test phones on a trusted LAN, start Wrangler with `npx wrangler dev --ip 0.0.0.0`, allow the development port through the local firewall, and use the computer's local IP address.
 
-Android unit tests use Robolectric to verify SQLite persistence across reopening, receive deduplication, interrupted-send status, legacy migration, uncapped history, network field allowlisting, timestamp validation, and relay URL validation. An opt-in Robolectric round-trip test also uses the actual Android HTTP client and three separate SQLite databases against a real relay. Run it against an otherwise unused endpoint:
+Android unit tests verify the fixed catalog, event/duration defaults, exact current-time capture, manual minute precision, midnight and range validation, plus Robolectric checks for SQLite persistence across reopening, receive deduplication, interrupted-send status, legacy migration, uncapped history, network field allowlisting, timestamp validation, and relay URL validation. An opt-in Robolectric round-trip test also uses the actual Android HTTP client and three separate SQLite databases against a real relay. Run it against an otherwise unused endpoint:
 
 ```powershell
 $env:RELAY_TEST_URL = "http://127.0.0.1:8787"
@@ -144,6 +167,12 @@ $env:RELAY_TEST_URL = "http://127.0.0.1:8787"
 ```
 
 It verifies a sender's local copy, two concurrent recipients, persistence before acknowledgement, duplicate suppression after reopening, and deletion after the second acknowledgement. Physical-device screen-off and battery-policy behavior still requires testing on real devices.
+
+The composer also has physical-device UI tests. They edit drafts without posting: checking category/activity selection, mode overrides, both Now labels fitting on one line, manual versus exact precision, and draft preservation through activity recreation. After building/installing the app and test APK:
+
+```powershell
+adb shell am instrument -w -r -e class com.knupdate.app.ActivityComposerTest com.knupdate.app.test/androidx.test.runner.AndroidJUnitRunner
+```
 
 On 26 October 2026, an ADB-connected Android 15 phone running the committed APK passed a short background-receiving check against the live relay. It received a labelled synthetic update and posted a notification with the app in the background. A temporary second listener withheld acknowledgement; the relay retained the update until its acknowledgement, then the public pending list became empty within approximately 0.4 seconds. This does not establish long-term screen-off or Doze reliability.
 

@@ -8,10 +8,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
-import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 data class ActivityRecord(
@@ -34,9 +32,8 @@ data class ActivityRecord(
 
     fun timeText(): String {
         val zone = ZoneId.of(timeZone)
-        val formatter = DateTimeFormatter.ofPattern(if (legacy) "h:mm a" else "d MMM yyyy, h:mm a").withZone(zone)
-        val start = formatter.format(Instant.ofEpochMilli(startAt))
-        return start + (endAt?.let { " - ${formatter.format(Instant.ofEpochMilli(it))}" } ?: "") +
+        val start = ActivityTime.text(startAt, zone, includeDate = !legacy)
+        return start + (endAt?.let { " - ${ActivityTime.text(it, zone, includeDate = !legacy)}" } ?: "") +
             if (legacy) " (date unavailable)" else " ($timeZone)"
     }
 
