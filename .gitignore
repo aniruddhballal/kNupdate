@@ -41,3 +41,5 @@ local.properties
 # Local development data
 /backend/data
 /backend/logs
+/backend/node_modules/
+/backend/.wrangler/

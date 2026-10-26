@@ -1,44 +1,35 @@
-# kNupdate Roadmap
+# kNupdate roadmap
 
-## Current goal
+## Implemented
 
-Build a small, local-only Android activity recorder with a restrained `mp3fy`-inspired interface.
+- Local display name and structured activity composer, including detail choices and Run / 5k.
+- Real timestamps and local sent/received SQLite histories.
+- Migration of the previous local history without uploading it.
+- Public plaintext relay using Cloudflare Workers and one Durable Object.
+- Activity payloads held in memory only; no cloud database or file history.
+- Long polling, ephemeral listener sessions, multiple simultaneous recipients and updates.
+- Local commit before acknowledgement; duplicate suppression.
+- Deletion after all eligible acknowledgements, with a 30-second fallback expiry.
+- Live-only delivery; no offline backlog or automatic delayed sends.
+- Android foreground receiving service, incoming notifications and stop action.
+- Timeout handling, offline status and retry backoff.
+- Relay configuration and health check from the app.
+- Disabled cloud/device-transfer backups for local data.
+- Relay unit/HTTP tests and Android SQLite/model tests.
 
-The current version should do only this:
+## Deployment and device acceptance
 
-1. Ask for a display name on first launch.
-2. Save that name locally on the phone.
-3. Offer a finite list of activity titles.
-4. Offer a finite list of details/bodies for the selected title.
-5. Offer either a single time or a from/to time range.
-6. Default time inputs to the current phone time.
-7. Reject future times.
-8. Save the structured update locally.
-9. Show a temporary simulated confirmation when `kNupdate` is pressed.
+- Deploy to a permanent Cloudflare Workers Free account or claim an available temporary preview.
+- Install the configured APK on at least two phones.
+- Verify notification permissions, screen-off receiving, internet toggling and OEM battery behavior.
+- Verify Android foreground-service timeout and explicit restart on a physical device.
+- Monitor free-tier quotas during real use; retain the Free plan to avoid spending.
 
-## Completed local core
+## Later
 
-- [x] Local display-name setup using Android app storage.
-- [x] No `INTERNET` permission in the Android app.
-- [x] Fixed activity title and body choices.
-- [x] Single-time and from/to time flows.
-- [x] Current-time defaults.
-- [x] Future-time rejection.
-- [x] Local update persistence.
-- [x] Local update list.
-- [x] Simulated zero-connections confirmation.
-- [x] White/black `mp3fy`-style visual system.
-- [x] `kN` launcher mark and wordmark.
-- [x] Debug APK build and test command.
+1. Design routing only to connections without putting names in activity payloads.
+2. Design and review end-to-end encryption and any shared-folder transport.
+3. Decide whether best-effort background receiving meets the product need or requires a push transport.
+4. Add abuse controls before treating the unrestricted public endpoint as a broad public service.
 
-## Next, in order
-
-1. Test the complete local flow on a physical phone.
-2. Decide whether the display name needs a local edit/reset action.
-3. Add focused unit/UI tests for future-time rejection, range validation, and persistence.
-4. Tighten the activity taxonomy and wording after using the app personally.
-5. Only then decide whether connections or cloud sync are worth reintroducing.
-
-## Explicitly out of scope for now
-
-Cloud accounts, backend services, databases, OTP, connections, notifications, analytics, public profiles, search, media, sharing, comments, likes, messages, and remote activity history.
+No accounts, permanent device identifiers, connection graph, offline catch-up, cloud activity history, or encryption are implemented in this phase.

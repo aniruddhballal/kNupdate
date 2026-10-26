@@ -1,7 +1,13 @@
 package com.knupdate.app
 
 import android.os.Bundle
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
@@ -36,6 +42,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,8 +66,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Surface
-import org.json.JSONArray
-import org.json.JSONObject
+import androidx.core.content.ContextCompat
+import java.time.LocalDate
+import java.time.ZoneId
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -76,8 +88,10 @@ private val ActiveRow = Color(0xFFF2F2F2)
 private val TimeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
 
 class MainActivity : ComponentActivity() {
+    private val inboxRequested = mutableStateOf(false)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        inboxRequested.value = intent.getBooleanExtra("show_inbox", false)
         window.statusBarColor = android.graphics.Color.WHITE
         window.navigationBarColor = android.graphics.Color.WHITE
         window.decorView.systemUiVisibility =
@@ -85,14 +99,20 @@ class MainActivity : ComponentActivity() {
                 android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
         setContent {
             KNupdateTheme {
-                KNupdateApp()
+                KNupdateApp(inboxRequested.value) { inboxRequested.value = false }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        inboxRequested.value = intent.getBooleanExtra("show_inbox", false)
     }
 }
 
 @Composable
-private fun KNupdateApp() {
+private fun KNupdateApp(showInbox: Boolean, onInboxOpened: () -> Unit) {
     val context = LocalContext.current
     val preferences = remember {
         context.getSharedPreferences("knupdate_local", 0)
@@ -110,7 +130,7 @@ private fun KNupdateApp() {
             }
         )
     } else {
-        LocalActivityScreen()
+        LocalActivityScreen(showInbox, onInboxOpened)
     }
 }
 
@@ -162,7 +182,7 @@ private fun NameSetupScreen(onSave: (String) -> Unit) {
             .padding(horizontal = 20.dp),
         horizontalAlignment = Alignment.Start
     ) {
-        ScreenHeader(label = "LOCAL ONLY")
+        ScreenHeader(label = "YOUR PHONE")
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -179,7 +199,7 @@ private fun NameSetupScreen(onSave: (String) -> Unit) {
                 letterSpacing = (-0.5).sp
             )
             Text(
-                text = "This name stays on this phone. Nothing is sent to a server.",
+                text = "Your name stays on this phone. Activities are shared publicly without your name while you send them.",
                 color = Ink,
                 fontSize = 15.sp,
                 lineHeight = 22.sp
@@ -201,11 +221,16 @@ private fun NameSetupScreen(onSave: (String) -> Unit) {
 }
 
 @Composable
-private fun LocalActivityScreen() {
+private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
     val context = LocalContext.current
-    val preferences = remember {
-        context.getSharedPreferences("knupdate_local", 0)
-    }
+    val store = remember { ActivityStore.get(context) }
+    val updates by store.records.collectAsState()
+    val receiver by ReceiverStatus.state.collectAsState()
+    val sending by SendCoordinator.sending.collectAsState()
+    val sendError by SendCoordinator.error.collectAsState()
+    var tab by rememberSaveable { mutableStateOf(if (RelaySettings.url(context).isBlank()) "Relay" else "New") }
+    var ready by remember { mutableStateOf(false) }
+    var loadError by remember { mutableStateOf<String?>(null) }
     val defaultTime = remember { currentTimeMinutes() }
     var selectedActivityId by rememberSaveable { mutableStateOf(ACTIVITY_OPTIONS.first().id) }
     var selectedBody by rememberSaveable { mutableStateOf(ACTIVITY_OPTIONS.first().bodies.first()) }
@@ -213,129 +238,167 @@ private fun LocalActivityScreen() {
     var endMinutes by rememberSaveable { mutableStateOf(defaultTime) }
     var timeError by rememberSaveable { mutableStateOf<String?>(null) }
     var updateButtonSuccess by rememberSaveable { mutableStateOf(false) }
+    var lastSentId by rememberSaveable { mutableStateOf<String?>(null) }
     var timePickerIsStart by remember { mutableStateOf<Boolean?>(null) }
-    var updates by remember { mutableStateOf(loadUpdates(preferences)) }
-
     val selectedActivity = ACTIVITY_OPTIONS.first { it.id == selectedActivityId }
+    val lastSent = updates.firstOrNull { it.id == lastSentId }
 
+    LaunchedEffect(Unit) {
+        try { withContext(Dispatchers.IO) { store.load() }; ready = true }
+        catch (_: Exception) { loadError = "Could not open local history. Restart the app before sending." }
+    }
+    LaunchedEffect(showInbox) {
+        if (showInbox) { tab = "Inbox"; onInboxOpened() }
+    }
     LaunchedEffect(selectedActivityId) {
         selectedBody = selectedActivity.bodies.first()
-        val now = currentTimeMinutes()
-        startMinutes = now
-        endMinutes = now
+        startMinutes = currentTimeMinutes()
+        endMinutes = startMinutes
         timeError = null
     }
-
-    LaunchedEffect(updateButtonSuccess) {
-        if (updateButtonSuccess) {
-            delay(850)
-            updateButtonSuccess = false
-        }
-    }
-
-    fun chooseTime(isStart: Boolean) {
-        timePickerIsStart = isStart
+    LaunchedEffect(lastSent?.status) {
+        if (lastSent?.status == "sent") { updateButtonSuccess = true; delay(850); updateButtonSuccess = false }
     }
 
     fun saveUpdate() {
+        if (!ready || sending) return
+        if (RelaySettings.url(context).isBlank()) { tab = "Relay"; return }
         val now = currentTimeMinutes()
         when {
             startMinutes > now || (selectedActivity.timeMode == TimeMode.RANGE && endMinutes > now) -> {
-                timeError = "Future times cannot be used."
-                return
+                timeError = "Future times cannot be used."; return
             }
             selectedActivity.timeMode == TimeMode.RANGE && endMinutes <= startMinutes -> {
-                timeError = "The end time must be after the start time."
-                return
+                timeError = "The end time must be after the start time."; return
             }
         }
-
-        val update = LocalUpdate(
-            title = selectedActivity.title,
-            body = selectedBody,
-            startMinutes = startMinutes,
-            endMinutes = if (selectedActivity.timeMode == TimeMode.RANGE) endMinutes else null
-        )
-        updates = listOf(update) + updates
-        saveUpdates(preferences, updates)
-        selectedActivityId = ACTIVITY_OPTIONS.first().id
-        selectedBody = ACTIVITY_OPTIONS.first().bodies.first()
-        val resetNow = currentTimeMinutes()
-        startMinutes = resetNow
-        endMinutes = resetNow
+        val zone = ZoneId.systemDefault()
+        val today = LocalDate.now(zone)
+        fun timestamp(minutes: Int) = today.atTime(minutesToLocalTime(minutes)).atZone(zone).toInstant().toEpochMilli()
+        val update = ActivityRecord(title = selectedActivity.title, body = selectedBody,
+            startAt = timestamp(startMinutes),
+            endAt = if (selectedActivity.timeMode == TimeMode.RANGE) timestamp(endMinutes) else null)
+        lastSentId = update.id
         timeError = null
-        updateButtonSuccess = true
+        SendCoordinator.send(context, update)
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Paper)
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .padding(horizontal = 20.dp)
-    ) {
+    Column(modifier = Modifier.fillMaxSize().background(Paper).statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp)) {
         ScreenHeader(label = null)
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .verticalScroll(rememberScrollState())
-                .padding(bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            SectionLabel(text = "ACTIVITY")
-            ActivityOptionList(
-                selectedActivityId = selectedActivityId,
-                onSelect = { selectedActivityId = it }
-            )
-
-            SectionLabel(text = if (selectedActivity.timeMode == TimeMode.SINGLE) "TIME" else "TIME RANGE")
-            if (selectedActivity.timeMode == TimeMode.SINGLE) {
-                TimeButton(
-                    label = formatMinutes(startMinutes),
-                    onClick = { chooseTime(isStart = true) },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    TimeButton(
-                        label = "FROM  ${formatMinutes(startMinutes)}",
-                        onClick = { chooseTime(isStart = true) },
-                        modifier = Modifier.weight(1f)
-                    )
-                    TimeButton(
-                        label = "TO  ${formatMinutes(endMinutes)}",
-                        onClick = { chooseTime(isStart = false) },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            listOf("New", "Sent", "Inbox", "Relay").forEach { label ->
+                Text(label.uppercase(), color = if (tab == label) Ink else Muted,
+                    fontSize = 11.sp, fontWeight = if (tab == label) FontWeight.Bold else FontWeight.Normal,
+                    modifier = Modifier.clickable { tab = label }.padding(vertical = 18.dp, horizontal = 8.dp))
             }
-            timeError?.let { Text(text = it, color = Color(0xFFB3261E), fontSize = 13.sp) }
-
-            UpdateButton(
-                success = updateButtonSuccess,
-                onClick = ::saveUpdate,
-                modifier = Modifier.fillMaxWidth()
-            )
-
+        }
+        loadError?.let { Text(it, color = Color(0xFFB3261E), fontSize = 13.sp) }
+        when (tab) {
+            "Sent", "Inbox" -> HistoryList(updates.filter { it.direction == if (tab == "Sent") "sent" else "received" }, tab)
+            "Relay" -> RelayScreen(receiver)
+            else -> Column(modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text(if (receiver.running) receiver.message else "Receiving is off. Start it in Relay to get updates.", color = Muted, fontSize = 12.sp)
+                SectionLabel("ACTIVITY")
+                ActivityOptionList(selectedActivityId) { selectedActivityId = it }
+                SectionLabel("DETAIL")
+                ChoiceList(selectedActivity.bodies, selectedBody) { selectedBody = it }
+                SectionLabel(if (selectedActivity.timeMode == TimeMode.SINGLE) "TIME TODAY" else "TIME RANGE TODAY")
+                if (selectedActivity.timeMode == TimeMode.SINGLE) {
+                    TimeButton(formatMinutes(startMinutes), { timePickerIsStart = true }, Modifier.fillMaxWidth())
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        TimeButton("FROM  ${formatMinutes(startMinutes)}", { timePickerIsStart = true }, Modifier.weight(1f))
+                        TimeButton("TO  ${formatMinutes(endMinutes)}", { timePickerIsStart = false }, Modifier.weight(1f))
+                    }
+                }
+                timeError?.let { Text(it, color = Color(0xFFB3261E), fontSize = 13.sp) }
+                Text("Shared publicly without your name with everyone listening now. Offline phones miss it.", color = Muted, fontSize = 12.sp)
+                if (ready && !sending) UpdateButton(updateButtonSuccess, ::saveUpdate, Modifier.fillMaxWidth())
+                else BlackButton(if (sending) "SENDING" else "LOADING", enabled = false, onClick = {}, modifier = Modifier.fillMaxWidth())
+                lastSent?.let { Text(deliveryText(it), color = Muted, fontSize = 13.sp) }
+                sendError?.let { Text(it, color = Color(0xFFB3261E), fontSize = 13.sp) }
+            }
         }
     }
-
     timePickerIsStart?.let { isStart ->
-        KNTimePickerDialog(
-            initialMinutes = if (isStart) startMinutes else endMinutes,
+        KNTimePickerDialog(if (isStart) startMinutes else endMinutes,
             onDismiss = { timePickerIsStart = null },
             onConfirm = { chosen ->
-                if (isStart) {
-                    startMinutes = chosen
-                } else {
-                    endMinutes = chosen
-                }
-                timeError = null
-                timePickerIsStart = null
+                if (isStart) startMinutes = chosen else endMinutes = chosen
+                timeError = null; timePickerIsStart = null
+            })
+    }
+}
+
+private fun deliveryText(record: ActivityRecord): String = when (record.status) {
+    "sending" -> "Saved on this phone. Sending to relay..."
+    "sent" -> if (record.listeners == 0) "Sent. Nobody was listening; removed from relay immediately."
+        else "Sent to ${record.listeners} listening phone(s). Receipt is not guaranteed."
+    "uncertain" -> "Saved here. Delivery could not be confirmed; this will not resend automatically."
+    "received" -> "Received and stored on this phone."
+    else -> "Stored on this phone only."
+}
+
+@Composable
+private fun HistoryList(records: List<ActivityRecord>, tab: String) {
+    if (records.isEmpty()) {
+        Text(if (tab == "Sent") "Your sent activities will stay here." else "No received kNupdates. Start receiving in Relay.",
+            color = Muted, fontSize = 14.sp, modifier = Modifier.padding(vertical = 24.dp))
+    } else LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        items(records, key = { it.id }) { record ->
+            Column(modifier = Modifier.fillMaxWidth().border(1.dp, Rule).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(record.title, color = Ink, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                Text(record.body, color = Ink, fontSize = 15.sp)
+                Text(record.timeText(), color = Muted, fontSize = 12.sp)
+                Text(deliveryText(record), color = Muted, fontSize = 12.sp)
             }
-        )
+        }
+    }
+}
+
+@Composable
+private fun RelayScreen(receiver: ReceiverState) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var url by rememberSaveable { mutableStateOf(RelaySettings.url(context)) }
+    var message by rememberSaveable { mutableStateOf<String?>(null) }
+    var testing by remember { mutableStateOf(false) }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        message = if (granted) "Notifications enabled. You can start receiving." else "Notifications are off. Received activities will still appear in Inbox."
+    }
+    Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        SectionLabel("PUBLIC RELAY")
+        Text("Updates are public and temporarily readable without your name. Sent and received histories stay on this phone.", color = Ink, fontSize = 15.sp)
+        LocalTextField(url, { url = it }, "https://knupdate-relay...workers.dev", {})
+        BlackButton(if (testing) "CHECKING" else "SAVE & CHECK RELAY", enabled = !testing && !receiver.running, onClick = {
+            testing = true
+            scope.launch {
+                try {
+                    val normalized = RelaySettings.normalizeUrl(url)
+                    RelayClient(normalized).health()
+                    withContext(Dispatchers.IO) { RelaySettings.save(context, normalized) }
+                    url = normalized
+                    message = "Relay connected. Use the same relay on every phone."
+                } catch (error: Exception) { message = error.message ?: "Could not connect to relay." }
+                finally { testing = false }
+            }
+        }, modifier = Modifier.fillMaxWidth())
+        Text(receiver.message, color = Ink, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        BlackButton(if (receiver.running) "STOP RECEIVING" else "START RECEIVING",
+            enabled = receiver.running || RelaySettings.url(context).isNotBlank(), onClick = {
+                if (receiver.running) context.stopService(Intent(context, ReceiverService::class.java))
+                else try {
+                    ContextCompat.startForegroundService(context, Intent(context, ReceiverService::class.java))
+                } catch (_: Exception) { message = "Android could not start receiving. Reopen the app and try again." }
+            }, modifier = Modifier.fillMaxWidth())
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            BlackButton("ENABLE NOTIFICATIONS", onClick = { permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }, modifier = Modifier.fillMaxWidth())
+        }
+        message?.let { Text(it, color = Muted, fontSize = 13.sp) }
+        Text("Keep receiving on to be eligible for new updates. A persistent notification lets you stop it. Android may pause receiving when the phone sleeps, the app is stopped, or its background time limit is reached. Open the app to restart it. Being connected to the internet alone does not guarantee receipt.", color = Muted, fontSize = 13.sp, lineHeight = 20.sp)
+        Text("The relay removes an update after all listening phones confirm storage, or after 30 seconds. Offline phones do not catch up later. Activities are plaintext at the relay; HTTPS protects transport.", color = Muted, fontSize = 13.sp, lineHeight = 20.sp)
     }
 }
 
@@ -641,22 +704,18 @@ private enum class TimeMode { SINGLE, RANGE }
 
 private data class ActivityOption(val id: String, val title: String, val bodies: List<String>, val timeMode: TimeMode)
 
-private data class LocalUpdate(val title: String, val body: String, val startMinutes: Int, val endMinutes: Int?) {
-    fun timeText(): String = if (endMinutes == null) formatMinutes(startMinutes) else "${formatMinutes(startMinutes)}–${formatMinutes(endMinutes)}"
-}
-
 private val ACTIVITY_OPTIONS = listOf(
     ActivityOption("location", "Current location", listOf("Home", "Work", "Away"), TimeMode.SINGLE),
     ActivityOption("working", "Working", listOf("Office", "Home", "Other"), TimeMode.RANGE),
     ActivityOption("studying", "Studying", listOf("Home", "Library", "Other"), TimeMode.RANGE),
     ActivityOption("eating", "Eating", listOf("Breakfast", "Lunch", "Dinner"), TimeMode.SINGLE),
     ActivityOption("exercising", "Exercising", listOf("Gym", "Outside", "Home"), TimeMode.RANGE),
+    ActivityOption("run", "Run", listOf("5k", "10k", "Other"), TimeMode.RANGE),
     ActivityOption("travelling", "Travelling", listOf("Walking", "Driving", "Public transport"), TimeMode.RANGE),
     ActivityOption("sleeping", "Sleeping", listOf("Home"), TimeMode.RANGE)
 )
 
 private const val DISPLAY_NAME_KEY = "display_name"
-private const val UPDATES_KEY = "updates"
 
 private fun currentTimeMinutes(): Int {
     val now = LocalTime.now()
@@ -666,37 +725,3 @@ private fun currentTimeMinutes(): Int {
 private fun minutesToLocalTime(minutes: Int): LocalTime = LocalTime.of((minutes / 60).coerceIn(0, 23), (minutes % 60).coerceIn(0, 59))
 
 private fun formatMinutes(minutes: Int): String = minutesToLocalTime(minutes).format(TimeFormatter)
-
-private fun loadUpdates(preferences: android.content.SharedPreferences): List<LocalUpdate> {
-    val raw = preferences.getString(UPDATES_KEY, null) ?: return emptyList()
-    return runCatching {
-        val json = JSONArray(raw)
-        buildList {
-            for (index in 0 until json.length()) {
-                val item = json.getJSONObject(index)
-                add(
-                    LocalUpdate(
-                        title = item.getString("title"),
-                        body = item.getString("body"),
-                        startMinutes = item.getInt("start"),
-                        endMinutes = if (item.isNull("end")) null else item.getInt("end")
-                    )
-                )
-            }
-        }
-    }.getOrDefault(emptyList())
-}
-
-private fun saveUpdates(preferences: android.content.SharedPreferences, updates: List<LocalUpdate>) {
-    val json = JSONArray()
-    updates.take(50).forEach { update ->
-        json.put(
-            JSONObject()
-                .put("title", update.title)
-                .put("body", update.body)
-                .put("start", update.startMinutes)
-                .put("end", update.endMinutes ?: JSONObject.NULL)
-        )
-    }
-    preferences.edit().putString(UPDATES_KEY, json.toString()).apply()
-}
