@@ -26,15 +26,49 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
 data class ReceiverState(val running: Boolean = false, val message: String = "Receiving is off")
 
 object ReceiverStatus {
-    internal val mutable = MutableStateFlow(ReceiverState())
+    private val mutable = MutableStateFlow(ReceiverState())
     val state = mutable.asStateFlow()
+    private var activeRun: String? = null
     @Volatile var session: String? = null
-        internal set
+        private set
+
+    @Synchronized internal fun begin(): String {
+        val run = UUID.randomUUID().toString()
+        activeRun = run
+        session = UUID.randomUUID().toString()
+        mutable.value = ReceiverState(true, "Connecting to relay")
+        return run
+    }
+
+    @Synchronized internal fun isCurrent(run: String?): Boolean = run != null && run == activeRun
+
+    @Synchronized internal fun update(run: String?, message: String): Boolean {
+        if (!isCurrent(run)) return false
+        mutable.value = ReceiverState(true, message)
+        return true
+    }
+
+    @Synchronized internal fun rotateSession(run: String?): String? {
+        if (!isCurrent(run)) return null
+        val previous = session
+        session = UUID.randomUUID().toString()
+        return previous
+    }
+
+    @Synchronized internal fun end(run: String? = null, message: String = "Receiving is off"): String? {
+        if (run != null && !isCurrent(run)) return null
+        val previous = session
+        activeRun = null
+        session = null
+        mutable.value = ReceiverState(false, message)
+        return previous
+    }
 }
 
 class ReceiverService : Service() {
@@ -42,14 +76,16 @@ class ReceiverService : Service() {
     private lateinit var client: RelayClient
     private lateinit var connectivity: ConnectivityManager
     @Volatile private var started = false
+    private var runId: String? = null
     private var lastMessage = ""
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onLost(network: Network) {
             if (started) {
-                val oldSession = ReceiverStatus.session
-                ReceiverStatus.session = UUID.randomUUID().toString()
-                client.cancelPoll()
-                if (oldSession != null) scope.launch { runCatching { client.close(oldSession) } }
+                val oldSession = ReceiverStatus.rotateSession(runId)
+                if (oldSession != null) {
+                    cleanupScope.launch { client.cancelPoll() }
+                    cleanupScope.launch { runCatching { client.close(oldSession) } }
+                }
             }
         }
     }
@@ -62,22 +98,22 @@ class ReceiverService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) { stopSelf(); return START_NOT_STICKY }
+        if (intent?.action == ACTION_STOP) { stop(this); return START_NOT_STICKY }
         if (started) return START_NOT_STICKY
         val url = RelaySettings.url(this)
         if (url.isBlank()) { stopSelf(); return START_NOT_STICKY }
         client = RelayClient(url)
-        ReceiverStatus.session = UUID.randomUUID().toString()
+        val run = ReceiverStatus.begin()
+        runId = run
         val notification = serviceNotification("Connecting to relay")
         if (Build.VERSION.SDK_INT >= 29) startForeground(SERVICE_NOTIFICATION, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         else startForeground(SERVICE_NOTIFICATION, notification)
         started = true
-        ReceiverStatus.mutable.value = ReceiverState(true, "Connecting to relay")
         scope.launch {
             var backoff = 1_000L
             val store = ActivityStore.get(this@ReceiverService)
             try {
-                while (isActive) {
+                while (isActive && ReceiverStatus.isCurrent(run)) {
                     if (!hasInternet()) {
                         setStatus("Offline - updates sent now will be missed")
                         delay(2_000)
@@ -86,19 +122,21 @@ class ReceiverService : Service() {
                     try {
                         val session = ReceiverStatus.session ?: break
                         setStatus("Listening for public kNupdates")
+                        if (!ReceiverStatus.isCurrent(run)) break
                         val updates = client.poll(session)
-                        if (session != ReceiverStatus.session) continue
+                        if (!ReceiverStatus.isCurrent(run) || session != ReceiverStatus.session) continue
                         val acknowledgements = mutableListOf<String>()
                         for (index in 0 until updates.length()) {
+                            if (!ReceiverStatus.isCurrent(run)) break
                             val wire = updates.getJSONObject(index)
                             if (wire.optLong("expiresAt", 0) <= System.currentTimeMillis()) continue
                             val record = ActivityRecord.fromWire(wire)
                             // SQLite commit completes before ACK; replay after a lost ACK is deduplicated.
                             val inserted = store.insert(record)
                             acknowledgements.add(record.id)
-                            if (inserted) runCatching { notifyActivity(record) }
+                            if (inserted && ReceiverStatus.isCurrent(run)) runCatching { notifyActivity(record) }
                         }
-                        if (acknowledgements.isNotEmpty()) client.acknowledge(session, acknowledgements)
+                        if (acknowledgements.isNotEmpty() && ReceiverStatus.isCurrent(run)) client.acknowledge(session, acknowledgements)
                         backoff = 1_000
                     } catch (cancelled: CancellationException) { throw cancelled }
                     catch (error: Exception) {
@@ -119,8 +157,9 @@ class ReceiverService : Service() {
             capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     }
 
-    private fun setStatus(message: String) {
-        ReceiverStatus.mutable.value = ReceiverState(true, message)
+    private suspend fun setStatus(message: String) = withContext(Dispatchers.Main.immediate) {
+        // Main-thread delivery serializes notification changes with user Stop and onDestroy.
+        if (!ReceiverStatus.update(runId, message)) return@withContext
         if (lastMessage != message) {
             lastMessage = message
             getSystemService(NotificationManager::class.java).notify(SERVICE_NOTIFICATION, serviceNotification(message))
@@ -144,24 +183,21 @@ class ReceiverService : Service() {
     }
 
     override fun onTimeout(startId: Int, fgsType: Int) {
-        ReceiverStatus.mutable.value = ReceiverState(false, "Android paused receiving. Open the app and start it again.")
+        val session = ReceiverStatus.end(runId, "Android paused receiving. Open the app and start it again.")
+        if (session != null && ::client.isInitialized) cleanupScope.launch { runCatching { client.close(session) } }
         stopSelf()
     }
 
     override fun onDestroy() {
         started = false
-        val session = ReceiverStatus.session
-        ReceiverStatus.session = null
+        val session = if (runId != null) ReceiverStatus.end(runId) else null
         if (::client.isInitialized) {
             // Socket cleanup must not delay Android's foreground-service timeout on the main thread.
-            CoroutineScope(Dispatchers.IO).launch {
-                client.cancelPoll()
-                if (session != null) runCatching { client.close(session) }
-            }
+            cleanupScope.launch { client.cancelPoll() }
+            if (session != null) cleanupScope.launch { runCatching { client.close(session) } }
         }
         scope.cancel()
         connectivity.unregisterNetworkCallback(networkCallback)
-        if (ReceiverStatus.mutable.value.running) ReceiverStatus.mutable.value = ReceiverState()
         stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }
@@ -173,6 +209,17 @@ class ReceiverService : Service() {
         private const val LISTEN_CHANNEL = "receiving"
         private const val UPDATE_CHANNEL = "updates"
         private const val ACTION_STOP = "com.knupdate.STOP_RECEIVING"
+        private val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+        fun stop(context: Context) {
+            // Stop is a local action. Invalidate callbacks before Android/network cleanup.
+            val session = ReceiverStatus.end()
+            val url = RelaySettings.url(context)
+            context.stopService(Intent(context, ReceiverService::class.java))
+            if (session != null && url.isNotBlank()) cleanupScope.launch {
+                runCatching { RelayClient(url).close(session) }
+            }
+        }
 
         fun createChannels(context: Context) {
             context.getSystemService(NotificationManager::class.java).apply {

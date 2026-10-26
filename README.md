@@ -7,6 +7,7 @@ An Android app for public, live activity broadcasts with local sent and received
 1. Choose an activity, its detail, and a time or time range for today. `Run / 5k` is included.
 2. Sending commits a copy to the phone's SQLite history before posting the activity to the relay. The local display name is never included.
 3. Receiving uses a user-started foreground service with a persistent notification and 25-second HTTP long polls. A response returns immediately when an update arrives.
+   **Stop receiving** immediately clears the local receiving state and invalidates callbacks from that receiver run. Closing the old network connection and notifying the relay happen separately, so a failed or pending poll cannot change the stopped screen back to retrying.
 4. The relay snapshots active random listener sessions when the activity arrives. A five-second lease covers the gap between polls. New listeners are not added to an existing update.
 5. Each recipient commits its copy to local SQLite, then acknowledges it. Repeated delivery after a lost acknowledgement does not create another local entry or notification.
 6. The last required acknowledgement removes the relay's copy. A 30-second expiry removes unacknowledged copies; no listeners means immediate disposal. Concurrent activities have independent lifetimes.

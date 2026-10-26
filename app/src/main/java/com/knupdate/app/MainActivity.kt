@@ -388,7 +388,7 @@ private fun RelayScreen(receiver: ReceiverState) {
         Text(receiver.message, color = Ink, fontSize = 14.sp, fontWeight = FontWeight.Bold)
         BlackButton(if (receiver.running) "STOP RECEIVING" else "START RECEIVING",
             enabled = receiver.running || RelaySettings.url(context).isNotBlank(), onClick = {
-                if (receiver.running) context.stopService(Intent(context, ReceiverService::class.java))
+                if (receiver.running) ReceiverService.stop(context)
                 else try {
                     ContextCompat.startForegroundService(context, Intent(context, ReceiverService::class.java))
                 } catch (_: Exception) { message = "Android could not start receiving. Reopen the app and try again." }
