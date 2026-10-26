@@ -41,9 +41,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.offset
@@ -66,11 +63,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -85,6 +83,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Surface
@@ -220,11 +219,11 @@ private fun ReceivingToggle(receiver: ReceiverState, onChange: (Boolean) -> Unit
             interactionSource = interaction, indication = null,
             role = Role.Switch, onValueChange = onChange), contentAlignment = Alignment.Center) {
         Box(modifier = Modifier.size(width = 40.dp, height = 24.dp)
-            .clip(CircleShape).background(trackColor)
-            .border(1.dp, Ink, CircleShape)) {
+            .background(trackColor)
+            .border(1.dp, Ink)) {
             Box(modifier = Modifier.offset(x = 4.dp + (32.dp - thumbWidth) * position.coerceIn(0f, 1f), y = 4.dp)
                 .size(width = thumbWidth, height = 16.dp)
-                .background(thumbColor, CircleShape).border(0.8.dp, Ink, CircleShape))
+                .background(thumbColor).border(0.8.dp, Ink))
         }
     }
 }
@@ -402,32 +401,47 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
         receiverError?.let { Text(it, color = Color(0xFFB3261E), fontSize = 13.sp) }
         when (tab) {
             "Sent", "Inbox" -> HistoryList(updates.filter { it.direction == if (tab == "Sent") "sent" else "received" })
-            else -> Column(modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 28.dp),
+            else -> LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f).testTag("activity-composer"),
+                contentPadding = PaddingValues(bottom = 28.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                SectionLabel("ACTIVITY")
-                ActivityGroupStrip(selectedGroup.id) { id ->
-                    if (id != selectedGroupId) {
-                        selectedGroupId = id
-                        selectActivity(ACTIVITY_GROUPS.first { it.id == id }.activities.first().id)
+                item(key = "activity-label", contentType = "section") { SectionLabel("ACTIVITY") }
+                item(key = "groups", contentType = "groups") {
+                    ActivityGroupStrip(selectedGroup.id) { id ->
+                        if (id != selectedGroupId) {
+                            selectedGroupId = id
+                            selectActivity(ACTIVITY_GROUPS.first { it.id == id }.activities.first().id)
+                        }
                     }
                 }
-                ActivityGrid(selectedGroup.activities, selectedActivityId, ::selectActivity)
-                Text(selectedActivity.title, color = Ink, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-                SectionLabel("DETAIL")
-                ChoiceList(selectedActivity.bodies, selectedBody) { selectedBody = it }
-                SectionLabel("TIME")
-                TimeModeSelector(isRange) { isRange = it; timeError = null }
-                TimestampField(if (isRange) "From" else "At", startAt,
-                    onEdit = { timePickerIsStart = true },
-                    onNow = { startAt = ActivityTime.now(); timeError = null })
-                if (isRange) TimestampField("To", endAt,
-                    onEdit = { timePickerIsStart = false },
-                    onNow = { endAt = ActivityTime.now(); timeError = null })
-                timeError?.let { Text(it, color = Color(0xFFB3261E), fontSize = 13.sp) }
-                if (ready && !sending) UpdateButton(updateButtonSuccess, ::saveUpdate, Modifier.fillMaxWidth())
-                else BlackButton(if (sending) "SENDING" else "LOADING", enabled = false, onClick = {}, modifier = Modifier.fillMaxWidth())
-                lastSent?.let { Text(deliveryText(it), color = Muted, fontSize = 13.sp) }
-                sendError?.let { Text("Could not save.", color = Color(0xFFB3261E), fontSize = 13.sp) }
+                items(selectedGroup.activities.chunked(4), key = { "activities-${it.first().id}" }, contentType = { "activity-row" }) { row ->
+                    ActivityGridRow(row, selectedActivityId, ::selectActivity)
+                }
+                item(key = "selected-title", contentType = "title") {
+                    Text(selectedActivity.title, color = Ink, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                }
+                item(key = "detail-label", contentType = "section") { SectionLabel("DETAIL") }
+                items(selectedActivity.bodies.chunked(2), key = { "detail-${selectedActivity.id}-${it.first()}" }, contentType = { "detail-row" }) { row ->
+                    ChoiceRow(row, selectedBody) { selectedBody = it }
+                }
+                item(key = "time-label", contentType = "section") { SectionLabel("TIME") }
+                item(key = "time-mode", contentType = "mode") { TimeModeSelector(isRange) { isRange = it; timeError = null } }
+                item(key = "start-time", contentType = "time") {
+                    TimestampField(if (isRange) "From" else "At", startAt,
+                        onEdit = { timePickerIsStart = true },
+                        onNow = { startAt = ActivityTime.now(); timeError = null })
+                }
+                if (isRange) item(key = "end-time", contentType = "time") {
+                    TimestampField("To", endAt,
+                        onEdit = { timePickerIsStart = false },
+                        onNow = { endAt = ActivityTime.now(); timeError = null })
+                }
+                timeError?.let { error -> item(key = "time-error", contentType = "feedback") { Text(error, color = Color(0xFFB3261E), fontSize = 13.sp) } }
+                item(key = "send", contentType = "send") {
+                    if (ready && !sending) UpdateButton(updateButtonSuccess, ::saveUpdate, Modifier.fillMaxWidth())
+                    else BlackButton(if (sending) "SENDING" else "LOADING", enabled = false, onClick = {}, modifier = Modifier.fillMaxWidth())
+                }
+                lastSent?.let { record -> item(key = "delivery", contentType = "feedback") { Text(deliveryText(record), color = Muted, fontSize = 13.sp) } }
+                sendError?.let { item(key = "send-error", contentType = "feedback") { Text("Could not save.", color = Color(0xFFB3261E), fontSize = 13.sp) } }
             }
         }
     }
@@ -493,7 +507,7 @@ private fun KNTimePickerDialog(
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp),
             color = Paper,
-            shape = RoundedCornerShape(0.dp),
+            shape = RectangleShape,
             border = BorderStroke(1.dp, Ink)
         ) {
             Column(
@@ -548,7 +562,7 @@ private fun KNTimePickerDialog(
                     OutlinedButton(
                         onClick = onDismiss,
                         modifier = Modifier.weight(1f).height(48.dp),
-                        shape = RoundedCornerShape(0.dp),
+                        shape = RectangleShape,
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Ink),
                         border = BorderStroke(1.dp, Ink)
                     ) {
@@ -591,7 +605,7 @@ private fun TimeValuePicker(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(180.dp)
-                .border(1.dp, Rule, RoundedCornerShape(0.dp)),
+                .border(1.dp, Rule, RectangleShape),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             items(values.toList(), key = { it }) { value ->
@@ -634,11 +648,11 @@ private fun SectionLabel(text: String) {
 
 @Composable
 private fun ActivityGroupStrip(selected: String, onSelect: (String) -> Unit) {
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        ACTIVITY_GROUPS.forEach { group ->
+    LazyRow(Modifier.fillMaxWidth().testTag("activity-groups"), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(ACTIVITY_GROUPS, key = { it.id }, contentType = { "group" }) { group ->
             val active = selected == group.id
             val interaction = remember { MutableInteractionSource() }
-            Column(Modifier.width(78.dp).clip(RoundedCornerShape(10.dp))
+            Column(Modifier.width(78.dp)
                 .background(if (active) ActiveRow else Paper)
                 .semantics { contentDescription = "${group.label} activities" }
                 .selectable(active, interactionSource = interaction, indication = null,
@@ -654,33 +668,28 @@ private fun ActivityGroupStrip(selected: String, onSelect: (String) -> Unit) {
 }
 
 @Composable
-private fun ActivityGrid(options: List<ActivityOption>, selectedActivityId: String, onSelect: (String) -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        options.chunked(4).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                row.forEach { option ->
-                    val active = option.id == selectedActivityId
-                    val interaction = remember { MutableInteractionSource() }
-                    val pressed by interaction.collectIsPressedAsState()
-                    val scale by animateFloatAsState(if (pressed) 0.94f else 1f,
-                        animationSpec = spring(dampingRatio = 0.75f, stiffness = 600f), label = "Activity press")
-                    val shape = RoundedCornerShape(12.dp)
-                    Column(modifier = Modifier.weight(1f).height(92.dp).graphicsLayer { scaleX = scale; scaleY = scale }
-                        .clip(shape).background(if (active) Ink else Paper).border(1.dp, if (active) Ink else Rule, shape)
-                        .selectable(selected = active, interactionSource = interaction, indication = null,
-                            role = Role.RadioButton, onClick = { onSelect(option.id) })
-                        .padding(horizontal = 2.dp, vertical = 10.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically)) {
-                        Icon(painterResource(option.icon), contentDescription = null,
-                            tint = if (active) Paper else Ink, modifier = Modifier.size(28.dp))
-                        Text(option.label, color = if (active) Paper else Ink, fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
-                    }
-                }
-                repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
+private fun ActivityGridRow(options: List<ActivityOption>, selectedActivityId: String, onSelect: (String) -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        options.forEach { option ->
+            val active = option.id == selectedActivityId
+            val interaction = remember { MutableInteractionSource() }
+            val pressed by interaction.collectIsPressedAsState()
+            val scale by animateFloatAsState(if (pressed) 0.94f else 1f,
+                animationSpec = spring(dampingRatio = 0.75f, stiffness = 600f), label = "Activity press")
+            Column(modifier = Modifier.weight(1f).height(92.dp).graphicsLayer { scaleX = scale; scaleY = scale }
+                .background(if (active) Ink else Paper).border(1.dp, if (active) Ink else Rule)
+                .selectable(selected = active, interactionSource = interaction, indication = null,
+                    role = Role.RadioButton, onClick = { onSelect(option.id) })
+                .padding(horizontal = 2.dp, vertical = 10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically)) {
+                Icon(painterResource(option.icon), contentDescription = null,
+                    tint = if (active) Paper else Ink, modifier = Modifier.size(28.dp))
+                Text(option.label, color = if (active) Paper else Ink, fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
             }
         }
+        repeat(4 - options.size) { Spacer(Modifier.weight(1f)) }
     }
 }
 
@@ -690,9 +699,9 @@ private fun TimeModeSelector(isRange: Boolean, onSelect: (Boolean) -> Unit) {
         listOf(false to "At", true to "From–to").forEach { (range, label) ->
             val active = isRange == range
             val interaction = remember { MutableInteractionSource() }
-            Box(Modifier.weight(1f).clip(RoundedCornerShape(8.dp))
+            Box(Modifier.weight(1f)
                 .background(if (active) Ink else Paper)
-                .border(1.dp, if (active) Ink else Rule, RoundedCornerShape(8.dp))
+                .border(1.dp, if (active) Ink else Rule, RectangleShape)
                 .selectable(active, interactionSource = interaction, indication = null,
                     role = Role.RadioButton, onClick = { onSelect(range) }).padding(vertical = 12.dp),
                 contentAlignment = Alignment.Center) {
@@ -714,25 +723,20 @@ private fun TimestampField(label: String, timestamp: Long, onEdit: () -> Unit, o
 }
 
 @Composable
-private fun ChoiceList(choices: List<String>, selected: String, onSelect: (String) -> Unit) {
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        choices.chunked(2).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                row.forEach { choice ->
-                    val active = choice == selected
-                    val interaction = remember { MutableInteractionSource() }
-                    val shape = RoundedCornerShape(8.dp)
-                    Box(Modifier.weight(1f).heightIn(min = 48.dp).clip(shape)
-                        .background(if (active) Ink else Paper).border(1.dp, if (active) Ink else Rule, shape)
-                        .selectable(active, interactionSource = interaction, indication = null,
-                            role = Role.RadioButton, onClick = { onSelect(choice) }).padding(12.dp),
-                        contentAlignment = Alignment.Center) {
-                        Text(choice, color = if (active) Paper else Ink, fontSize = 12.sp, textAlign = TextAlign.Center)
-                    }
-                }
-                if (row.size == 1) Spacer(Modifier.weight(1f))
+private fun ChoiceRow(choices: List<String>, selected: String, onSelect: (String) -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        choices.forEach { choice ->
+            val active = choice == selected
+            val interaction = remember { MutableInteractionSource() }
+            Box(Modifier.weight(1f).heightIn(min = 48.dp)
+                .background(if (active) Ink else Paper).border(1.dp, if (active) Ink else Rule)
+                .selectable(active, interactionSource = interaction, indication = null,
+                    role = Role.RadioButton, onClick = { onSelect(choice) }).padding(12.dp),
+                contentAlignment = Alignment.Center) {
+                Text(choice, color = if (active) Paper else Ink, fontSize = 12.sp, textAlign = TextAlign.Center)
             }
         }
+        if (choices.size == 1) Spacer(Modifier.weight(1f))
     }
 }
 
@@ -741,7 +745,7 @@ private fun TimeButton(label: String, onClick: () -> Unit, modifier: Modifier = 
     OutlinedButton(
         onClick = onClick,
         modifier = modifier.height(48.dp),
-        shape = RoundedCornerShape(0.dp),
+        shape = RectangleShape,
         colors = ButtonDefaults.outlinedButtonColors(contentColor = Ink),
         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
         border = BorderStroke(1.dp, Ink)
@@ -756,7 +760,7 @@ private fun BlackButton(label: String, enabled: Boolean = true, onClick: () -> U
         onClick = onClick,
         enabled = enabled,
         modifier = modifier.height(48.dp),
-        shape = RoundedCornerShape(0.dp),
+        shape = RectangleShape,
         colors = ButtonDefaults.buttonColors(
             containerColor = Ink,
             contentColor = Paper,
@@ -775,8 +779,8 @@ private fun UpdateButton(success: Boolean, onClick: () -> Unit, modifier: Modifi
         enabled = !success,
         modifier = modifier
             .height(48.dp)
-            .border(1.dp, Ink, RoundedCornerShape(0.dp)),
-        shape = RoundedCornerShape(0.dp),
+            .border(1.dp, Ink, RectangleShape),
+        shape = RectangleShape,
         colors = ButtonDefaults.buttonColors(
             containerColor = Ink,
             contentColor = Paper,
@@ -814,7 +818,7 @@ private fun LocalTextField(value: String, onValueChange: (String) -> Unit, place
         keyboardActions = KeyboardActions(onDone = { onDone() }),
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, Ink, RoundedCornerShape(0.dp))
+            .border(1.dp, Ink, RectangleShape)
             .padding(horizontal = 14.dp, vertical = 14.dp),
         decorationBox = { innerTextField ->
             if (value.isEmpty()) Text(text = placeholder, color = Muted, fontSize = 15.sp)

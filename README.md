@@ -19,7 +19,7 @@ A listener is a random, temporary session handle. It is regenerated when receivi
 
 ## Activity catalog and times
 
-The app includes 100 predefined activities across ten groups. Both activity and detail are selected from fixed choices; there is no custom activity or free-text detail field. The catalog is bundled with the app in `ActivityCatalog.kt`, with no remote catalog service or dependency on another app. Swipe the group strip horizontally to browse all groups. Selected activities appear as white icons on black tiles; taps compress the rounded tile without a rectangular ripple. Sent and Inbox history rows keep their existing layout.
+The app includes 100 predefined activities across ten groups. Both activity and detail are selected from fixed choices; there is no custom activity or free-text detail field. The catalog is bundled with the app in `ActivityCatalog.kt`, with no remote catalog service or dependency on another app. Swipe the group strip horizontally to browse all groups. Selected activities appear as white icons on black tiles; taps compress the square tile without a ripple overlay. Every activity has its own distinct icon; icon curves are retained while all UI containers use square corners. Sent and Inbox history rows keep their existing layout.
 
 | Group | Activities |
 | --- | --- |
@@ -39,6 +39,14 @@ The app includes 100 predefined activities across ten groups. Both activity and 
 Each time field has its own **Now** button. It captures the device clock at the instant of the tap, including seconds and milliseconds; the value stays fixed until changed. Initial time values also capture the clock when the composer opens or a different activity is chosen. Opening the manual picker and confirming a time instead sets seconds and milliseconds to zero. Exact values pass through the relay and both local histories unchanged; times with sub-minute precision display seconds, while whole-minute times display hours and minutes.
 
 Times retain their selected date, even if midnight passes before sending. The manual picker edits that field's existing date, displayed in its heading; use Now to switch a field to the current date. A previous day's field shows its date in the composer. These controls can represent an overnight range by setting the start before midnight and the end after it, without silently moving the start to another day. There is no general date picker.
+
+## Scrolling and visual consistency
+
+The composer uses one `LazyColumn` with separate keyed rows for activity tiles, details and time controls, plus a horizontal `LazyRow` for the group strip. Off-screen rows can leave the layout rather than keeping the whole form active. All activity, detail, mode and navigation containers, dialogs, buttons, fields and the animated receiving switch use square corners. The theme also defaults Material shapes to zero corner radius. Icon geometry keeps natural curves and a consistent stroke weight.
+
+There are exactly 100 different activity icon resources, checked by the catalog test. Most are adapted from [Lucide](https://lucide.dev/) at pinned revision `6657faa96ae10efe1509203c62b60d913006ab82`; Run uses an original running figure. The upstream ISC/MIT notices ship in [the APK and source](app/src/main/assets/licenses/lucide.txt). `python scripts/import_activity_icons.py` reproducibly imports just the chosen vectors, verifies distinct geometry, and updates the resource mapping. The app never downloads icons or a catalog at runtime.
+
+On 26 October 2026, a short comparison on the same Android 15 phone used three warm-up swipes, reset `dumpsys gfxinfo`, then six alternating 500 ms vertical swipes. The previous debug APK recorded a 14 ms median, 21 ms 95th percentile and 4 janky frames out of 245. The optimized 1.2.2 preview recorded 10 ms, 14 ms and 3 out of 238 respectively. This is a small sample under normal phone conditions; it does not isolate individual optimizations. The new preview is 1,203,582 bytes versus 9,750,750 bytes for its debug counterpart. Three draft-only UI tests passed on debug; the installed optimized preview also passed a foreground receiver start/stop smoke check with its debuggable flag absent.
 
 ## Storage and privacy
 
@@ -90,10 +98,19 @@ After the account claim, the live HTTP integration suite and the Android HTTP cl
 Prerequisites: Android SDK 36 and JDK 17. The app supports Android 8+.
 
 ```powershell
-.\gradlew.bat testDebugUnitTest lintDebug assembleDebug
+.\gradlew.bat testDebugUnitTest lintDebug lintPreview assemblePreview
 ```
 
-The APK is at `app/build/outputs/apk/debug/app-debug.apk`. A refreshed copy is provided at `kNupdate-debug.apk`.
+For normal phone use, build the optimized preview:
+
+```powershell
+.\gradlew.bat assemblePreview
+adb install -r app/build/outputs/apk/preview/app-preview.apk
+```
+
+The recommended APK is at `app/build/outputs/apk/preview/app-preview.apk`; its committed copy is `kNupdate.apk` at the repository root, replacing the old `kNupdate-debug.apk`. Preview is non-debuggable, with R8 code optimization and resource shrinking enabled. It uses the same local Android debug signing certificate as previous installs so upgrading on this machine preserves local data. This is a personal testing certificate, not a production distribution key. Release builds also optimize and shrink, and need production signing configured separately. The ordinary development APK remains available at `app/build/outputs/apk/debug/app-debug.apk` after `assembleDebug`.
+
+Debug and preview APKs built in one Gradle invocation share one version reservation. Test the UI using the debug APK and instrumentation APK, then install the preview APK to judge normal scrolling performance. See [Android Compose performance guidance](https://developer.android.com/develop/ui/compose/performance).
 
 To bake the deployed public endpoint into a build:
 
@@ -115,7 +132,7 @@ Android does not permit a guarantee of constant background polling. Android 15+ 
 
 ## App controls and status labels
 
-The app shows activity content and three icon tabs: plus (new), paper plane (sent), and postbox (Inbox). The selected icon has a black background. Taps animate the icon's scale and opacity rather than drawing a rectangular ripple. The receiving switch sits at the right of the header on all three screens: white track with a black thumb on the left is off; black track with a white thumb on the right is on. Its thumb moves with a damped spring, gently widens while pressed, and transitions with the track colors inside the pill shape. On means the receiving service is enabled; network access and delivery remain best effort.
+The app shows activity content and three icon tabs: plus (new), paper plane (sent), and postbox (Inbox). The selected icon has a black background. Taps animate the icon's scale and opacity rather than drawing a rectangular ripple. The receiving switch sits at the right of the header on all three screens: white track with a black thumb on the left is off; black track with a white thumb on the right is on. Its thumb moves with a damped spring, gently widens while pressed, and transitions with the track colors inside the rectangular track. Both the track and thumb have square corners. On means the receiving service is enabled; network access and delivery remain best effort.
 
 Screen-reader labels identify all three tabs and the receiving switch. Its accessible state includes short receiving status such as Off, Listening, Offline or Retrying. There is no separate Relay tab. Setup explanations, delivery semantics, and privacy details live in this README; there are no server configuration controls, Advanced page, help button, or information panel.
 
@@ -168,7 +185,7 @@ $env:RELAY_TEST_URL = "http://127.0.0.1:8787"
 
 It verifies a sender's local copy, two concurrent recipients, persistence before acknowledgement, duplicate suppression after reopening, and deletion after the second acknowledgement. Physical-device screen-off and battery-policy behavior still requires testing on real devices.
 
-The composer also has physical-device UI tests. They edit drafts without posting: checking category/activity selection, mode overrides, both Now labels fitting on one line, manual versus exact precision, and draft preservation through activity recreation. After building/installing the app and test APK:
+The composer also has physical-device UI tests. They edit drafts without posting: checking category/activity selection, mode overrides, both Now labels fitting on one line, manual versus exact precision, and draft preservation through recreation and repeated scrolling. After building/installing the app and test APK:
 
 ```powershell
 adb shell am instrument -w -r -e class com.knupdate.app.ActivityComposerTest com.knupdate.app.test/androidx.test.runner.AndroidJUnitRunner

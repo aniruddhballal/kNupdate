@@ -31,7 +31,9 @@ Thus the APK before versioning was introduced maps to **1.1.1**. The next APK, i
 
 The activity catalog/grid and exact-time controls were first built as **1.2.0 (code 7)**. The subsequent build fixing the Now button's padding is **1.2.1 (code 8)**, the APK published with this activity revamp. These consumed build numbers are retained even though only the final artifact is committed.
 
-Every normal app APK/AAB build reserves the next patch version and increments versionCode once per Gradle invocation. Both debug and release variants in the same invocation share that reservation. This includes full `build`, `assemble`, `bundle`, `package` and `install` artifact tasks, including Android Studio's normal `:app:assembleDebug` invocation. Use complete task names rather than abbreviations.
+**1.2.2 (code 9)** adds square UI controls, distinct activity icons, row-level lazy scrolling and an optimized preview build. Its published artifact is `kNupdate.apk`; the former root development APK was removed. Debug and optimized preview were built together under this single version reservation.
+
+Every normal app APK/AAB build reserves the next patch version and increments versionCode once per Gradle invocation. Debug, preview and release variants in the same invocation share that reservation. This includes full `build`, `assemble`, `bundle`, `package` and `install` artifact tasks, including Android Studio's normal `:app:assembleDebug` invocation. Use complete task names rather than abbreviations.
 
 ```powershell
 # Next patch build (the default)
@@ -48,7 +50,7 @@ The build cannot infer the significance of a future change. The person making it
 
 IDE sync, `help`, tests, lint, test-APK assembly and dry runs read the current version without advancing it. APK version reservation happens before Android captures metadata, so failed artifact builds may consume a version. Do not roll back/reuse consumed numbers. Artifact builds use normal Gradle configuration; if configuration caching was explicitly enabled, pass `--no-configuration-cache` so each invocation reserves a new version. Concurrent reservations use a file lock and replace the version file atomically when supported.
 
-After a successful build, commit `version.properties` with the code changes and copy the resulting debug APK to `kNupdate-debug.apk` before committing the artifact. A later build intentionally advances the number again, even if source changes are identical. The build logic itself is verified with:
+After a successful build, commit `version.properties` with the code changes and copy the resulting optimized preview APK to `kNupdate.apk` before committing the artifact. A later build intentionally advances the number again, even if source changes are identical. The build logic itself is verified with:
 
 ```powershell
 .\gradlew.bat -p buildSrc test

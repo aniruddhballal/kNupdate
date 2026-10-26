@@ -39,34 +39,44 @@ class ActivityComposerTest {
         }.commit()
     }
 
-    private fun text(description: String): String = compose.onNodeWithContentDescription(description)
+    private fun scrollTo(matcher: SemanticsMatcher): SemanticsNodeInteraction {
+        compose.onNodeWithTag("activity-composer").performScrollToNode(matcher)
+        return compose.onNode(matcher)
+    }
+
+    private fun selectGroup(name: String) {
+        compose.onNodeWithTag("activity-composer").performScrollToIndex(0)
+        compose.onNodeWithTag("activity-groups").performScrollToNode(hasContentDescription("$name activities"))
+        compose.onNodeWithContentDescription("$name activities").performClick()
+    }
+
+    private fun text(description: String): String = scrollTo(hasContentDescription(description))
         .fetchSemanticsNode().config[SemanticsProperties.Text].joinToString { it.text }
 
     @Test fun nowAndManualTimesRetainTheirPrecisionAcrossRecreation() {
-        compose.onNodeWithText("Eat").performScrollTo().performClick()
-        compose.onNodeWithText("From–to").performScrollTo().assertIsSelected()
-        compose.onNodeWithContentDescription("From current time").performScrollTo().performClick()
+        scrollTo(hasText("Eat")).performClick()
+        scrollTo(hasText("From–to")).assertIsSelected()
+        scrollTo(hasContentDescription("From current time")).performClick()
         val exact = text("From selected time")
         assertTrue(exact.matches(Regex("From  \\d{1,2}:\\d{2}:\\d{2} [AP]M")))
         scenario.recreate()
         compose.waitForIdle()
         assertEquals(exact, text("From selected time"))
-        compose.onNodeWithContentDescription("From selected time").performScrollTo().performClick()
+        scrollTo(hasContentDescription("From selected time")).performClick()
         compose.onNodeWithText("OK").performClick()
         assertTrue(text("From selected time").matches(Regex("From  \\d{1,2}:\\d{2} [AP]M")))
-        compose.onNodeWithContentDescription("From current time").performScrollTo().performClick()
+        scrollTo(hasContentDescription("From current time")).performClick()
         assertTrue(text("From selected time").matches(Regex("From  \\d{1,2}:\\d{2}:\\d{2} [AP]M")))
     }
 
     @Test fun gridModesAndBothNowLabelsFitWithoutCustomEntry() {
-        compose.onNodeWithText("ACTIVITY").performScrollTo()
-        compose.onNodeWithContentDescription("Movement activities").performScrollTo().performClick()
-        compose.onNode(hasText("Run") and hasClickAction()).performScrollTo().performClick()
-        compose.onNodeWithText("From–to").performScrollTo().assertIsSelected()
-        compose.onAllNodesWithText("Now", useUnmergedTree = true).assertCountEquals(2)
-        repeat(2) { index ->
-            val node = compose.onAllNodesWithText("Now", useUnmergedTree = true)[index]
-            node.performScrollTo()
+        selectGroup("Movement")
+        scrollTo(hasText("Run") and hasClickAction()).performClick()
+        scrollTo(hasText("From–to")).assertIsSelected()
+        listOf("From", "To").forEach { label ->
+            val description = "$label current time"
+            scrollTo(hasContentDescription(description))
+            val node = compose.onNode(hasText("Now") and hasAnyAncestor(hasContentDescription(description)), useUnmergedTree = true)
             val layouts = mutableListOf<TextLayoutResult>()
             node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
             assertEquals(1, layouts.single().lineCount)
@@ -76,13 +86,28 @@ class ActivityComposerTest {
             assertTrue(result.getBoundingBox(2).right <= result.size.width + 1f)
             assertFalse(result.didOverflowHeight)
         }
-        compose.onNodeWithText("At", useUnmergedTree = false).performScrollTo().performClick()
-        compose.onNodeWithContentDescription("At current time").assertExists()
+        scrollTo(hasText("At")).performClick()
+        scrollTo(hasContentDescription("At current time")).assertExists()
         compose.onNodeWithContentDescription("To current time").assertDoesNotExist()
         compose.onAllNodes(hasSetTextAction()).assertCountEquals(0)
-        compose.onNodeWithText("ACTIVITY").performScrollTo()
-        compose.onNodeWithContentDescription("Travel activities").performScrollTo().performClick()
-        compose.onNode(hasText("Arrived") and hasClickAction()).performScrollTo().performClick()
-        compose.onNodeWithText("At").performScrollTo().assertIsSelected()
+        selectGroup("Travel")
+        scrollTo(hasText("Arrived") and hasClickAction()).performClick()
+        scrollTo(hasText("At")).assertIsSelected()
+    }
+
+    @Test fun scrollingDoesNotChangeDraftSelectionOrTime() {
+        selectGroup("Movement")
+        scrollTo(hasText("Run") and hasClickAction()).performClick()
+        scrollTo(hasContentDescription("From current time")).performClick()
+        val start = text("From selected time")
+        repeat(3) {
+            compose.onNodeWithTag("activity-composer").performScrollToIndex(0)
+            scrollTo(hasContentDescription("To current time"))
+        }
+        assertEquals(start, text("From selected time"))
+        scrollTo(hasText("Run") and hasClickAction()).assertIsSelected()
+        selectGroup("Wellbeing")
+        scrollTo(hasText("Medicine") and hasClickAction()).performClick()
+        scrollTo(hasText("At")).assertIsSelected()
     }
 }

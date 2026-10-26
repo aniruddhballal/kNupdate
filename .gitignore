@@ -46,3 +46,7 @@ local.properties
 /buildSrc/build/
 /version.properties.lock
 /.version-*.tmp
+
+# Python asset tooling caches
+__pycache__/
+*.py[cod]

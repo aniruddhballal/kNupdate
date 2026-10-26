@@ -7,6 +7,7 @@ class ActivityCatalogTest {
     @Test fun catalogHasUniquePredefinedChoicesWithinTheRelayLimits() {
         assertEquals(100, ACTIVITY_OPTIONS.size)
         assertEquals(100, ACTIVITY_OPTIONS.map { it.id }.toSet().size)
+        assertEquals("Each activity needs a distinct icon", 100, ACTIVITY_OPTIONS.map { it.icon }.toSet().size)
         assertEquals(10, ACTIVITY_GROUPS.map { it.id }.toSet().size)
         ACTIVITY_OPTIONS.forEach { activity ->
             assertTrue(activity.title.isNotBlank() && activity.title.length <= 80)
