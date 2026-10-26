@@ -21,6 +21,8 @@
 
 - [x] Claim the deployed Cloudflare relay account (26 October 2026).
 - [x] Pass HTTP integration and Android client/SQLite round-trip tests against the claimed live endpoint.
+- [x] Verify installed backup flag and local receipt counts on an Android 15 phone without exporting its database.
+- [x] Verify a synthetic live background delivery, notification, local persistence, and deletion after the last of two listener acknowledgements using one phone and a temporary test listener.
 - Install the configured APK on at least two phones.
 - Verify notification permissions, screen-off receiving, internet toggling and OEM battery behavior.
 - Verify Android foreground-service timeout and explicit restart on a physical device.

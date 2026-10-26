@@ -117,6 +117,19 @@ $env:RELAY_TEST_URL = "http://127.0.0.1:8787"
 
 It verifies a sender's local copy, two concurrent recipients, persistence before acknowledgement, duplicate suppression after reopening, and deletion after the second acknowledgement. Physical-device screen-off and battery-policy behavior still requires testing on real devices.
 
+On 26 October 2026, an ADB-connected Android 15 phone running the committed APK passed a short background-receiving check against the live relay. It received a labelled synthetic update and posted a notification with the app in the background. A temporary second listener withheld acknowledgement; the relay retained the update until its acknowledgement, then the public pending list became empty within approximately 0.4 seconds. This does not establish long-term screen-off or Doze reliability.
+
+`DevicePrivacyTest` provides a read-only audit of an installed app's backup flag and local SQLite receipt counts. It reports aggregate counts without exporting the database, display name, or activity rows. Android instrumentation restarts the app process, so run it outside an active receiving test and restart receiving afterwards if needed:
+
+```powershell
+.\gradlew.bat assembleDebugAndroidTest "-PrelayUrl=https://knupdate-relay.quiet-airport.workers.dev"
+adb install -r -t app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+adb shell am instrument -w -r -e class com.knupdate.app.DevicePrivacyTest com.knupdate.app.test/androidx.test.runner.AndroidJUnitRunner
+adb uninstall com.knupdate.app.test
+```
+
+The device audit confirmed backup disabled in the installed APK, one locally retained send accepted with zero listeners, and the synthetic received activity persisted after the receiving process restarted. It does not inspect or prove erasure within Cloudflare's internal infrastructure.
+
 ## Relay API
 
 | Method | Path | Purpose |
