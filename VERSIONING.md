@@ -53,6 +53,8 @@ The activity catalog/grid and exact-time controls were first built as **1.2.0 (c
 
 **1.6.0 (code 21)** adds an embedded open-source OpenStreetMap view to coordinate-bearing Sent and Inbox history. Receivers can see a sender marker and the phone-reported accuracy radius; visible OSM attribution, a stable app User-Agent, normal tile caching, and no prefetch/offline downloads follow the OSM tile policy. No wire-schema change is required.
 
+**1.6.1 (code 22)** keeps the beacon icon tied only to the user's tap choice, even when Android location services are unavailable. It adds a proper map pin and icon-only fullscreen/minimize controls to each coordinate map. No backend change is required.
+
 Every normal app APK/AAB build reserves the next patch version and increments versionCode once per Gradle invocation. Debug, preview and release variants in the same invocation share that reservation. This includes full `build`, `assemble`, `bundle`, `package` and `install` artifact tasks, including Android Studio's normal `:app:assembleDebug` invocation. Use complete task names rather than abbreviations.
 
 ```powershell

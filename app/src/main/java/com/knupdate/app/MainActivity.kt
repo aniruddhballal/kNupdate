@@ -432,7 +432,8 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
     }
 
     fun changeLocationBeacon() {
-        if (locationBeaconActive) {
+        // The icon is a consent toggle, not a live hardware-status indicator.
+        if (locationBeaconRequested) {
             LocationBeacon.setRequested(context, false)
             refreshLocationBeacon()
             Toast.makeText(context, "Location beacon off", Toast.LENGTH_SHORT).show()
@@ -552,7 +553,7 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
                     .clickable(role = Role.Button) { showListeners = true }, contentAlignment = Alignment.Center) {
                     Icon(painterResource(R.drawable.ic_activity_meeting_people), null, tint = Ink, modifier = Modifier.size(24.dp))
                 }
-                LocationBeaconToggle(locationBeaconActive, ::changeLocationBeacon)
+                LocationBeaconToggle(locationBeaconRequested, ::changeLocationBeacon)
                 // Keep the switch visually off while its options dialog is open. The thumb may
                 // move only after START has actually launched the receiver service.
                 ReceivingToggle(receiver.copy(running = receiver.running && !showReceivingOptions), ::changeReceiving)
@@ -682,6 +683,7 @@ private fun HistoryList(records: List<ActivityRecord>) {
 
 @Composable
 private fun CoordinateMap(fix: Coordinates) {
+    var fullscreen by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val mapView = remember(context) {
@@ -717,30 +719,72 @@ private fun CoordinateMap(fix: Coordinates) {
         }
     }
 
-    AndroidView(
-        factory = { mapView },
-        modifier = Modifier.fillMaxWidth().height(220.dp).border(1.dp, Rule),
-        update = { view ->
-            val point = GeoPoint(fix.latitude, fix.longitude)
-            view.overlays.clear()
-            view.overlays += Polygon(view).apply {
-                points.addAll(Polygon.pointsAsCircle(point, fix.accuracyMeters))
-                setFillColor(android.graphics.Color.argb(38, 0, 0, 0))
-                setStrokeColor(android.graphics.Color.argb(150, 0, 0, 0))
-                setStrokeWidth(2f)
+    if (fullscreen) {
+        Dialog(
+            onDismissRequest = { fullscreen = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(Modifier.fillMaxSize(), color = Paper) {
+                MapViewport(mapView, fix, fullscreen = true) { fullscreen = false }
             }
-            view.overlays += Marker(view).apply {
-                position = point
-                title = "Sender location"
-                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-            }
-            view.controller.setCenter(point)
-            view.controller.setZoom(mapZoom(fix.accuracyMeters))
-            view.invalidate()
         }
-    )
-    Text("© OpenStreetMap contributors", color = Muted, fontSize = 11.sp,
-        modifier = Modifier.fillMaxWidth().padding(top = 2.dp))
+    } else {
+        MapViewport(mapView, fix, fullscreen = false) { fullscreen = true }
+    }
+}
+
+@Composable
+private fun MapViewport(mapView: MapView, fix: Coordinates, fullscreen: Boolean, onFullscreenChange: () -> Unit) {
+    val size = if (fullscreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth().height(220.dp)
+    Box(size.border(1.dp, Rule)) {
+        AndroidView(
+            factory = { mapView },
+            modifier = Modifier.fillMaxSize(),
+            update = { view ->
+                val point = GeoPoint(fix.latitude, fix.longitude)
+                view.overlays.clear()
+                view.overlays += Polygon(view).apply {
+                    points.addAll(Polygon.pointsAsCircle(point, fix.accuracyMeters))
+                    setFillColor(android.graphics.Color.argb(38, 0, 0, 0))
+                    setStrokeColor(android.graphics.Color.argb(150, 0, 0, 0))
+                    setStrokeWidth(2f)
+                }
+                view.overlays += Marker(view).apply {
+                    icon = ContextCompat.getDrawable(view.context, R.drawable.ic_activity_location)
+                    position = point
+                    title = "Sender location"
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                }
+                view.controller.setCenter(point)
+                view.controller.setZoom(mapZoom(fix.accuracyMeters))
+                view.invalidate()
+            }
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(8.dp)
+                .size(40.dp)
+                .background(Paper)
+                .border(1.dp, Ink)
+                .semantics { contentDescription = if (fullscreen) "Minimize map" else "Fullscreen map" }
+                .clickable(role = Role.Button) { onFullscreenChange() },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                painter = painterResource(if (fullscreen) R.drawable.ic_fullscreen_exit else R.drawable.ic_fullscreen),
+                contentDescription = null,
+                tint = Ink,
+                modifier = Modifier.size(22.dp)
+            )
+        }
+        Text(
+            "© OpenStreetMap contributors",
+            color = Ink,
+            fontSize = 11.sp,
+            modifier = Modifier.align(Alignment.BottomStart).background(Paper).padding(4.dp)
+        )
+    }
 }
 
 private fun mapZoom(accuracyMeters: Double): Double = when {
