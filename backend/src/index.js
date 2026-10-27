@@ -147,6 +147,6 @@ export default {
         features: ["device-identities", "pairing", "targeted-delivery", "listener-directory", "listener-receipts"] });
     }
     if (!path.startsWith("/v1/")) return json({ error: "Not found." }, 404);
-    return env.RELAY.get(env.RELAY.idFromName("public-broadcast-v1")).fetch(request);
+    return env.RELAY.get(env.RELAY.idFromName("private-sharing-v1")).fetch(request);
   }
 };
