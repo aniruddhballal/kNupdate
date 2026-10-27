@@ -9,6 +9,10 @@ import android.provider.Settings
 import android.content.pm.PackageManager
 import android.os.Build
 import android.widget.Toast
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
+import android.graphics.Paint
+import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -76,6 +80,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -109,6 +114,12 @@ import com.knupdate.app.ui.theme.KNupdateTheme
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.delay
+import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.Polygon
 
 private val Ink = Color(0xFF000000)
 private val Paper = Color(0xFFFFFFFF)
@@ -655,6 +666,7 @@ private fun HistoryList(records: List<ActivityRecord>) {
                 record.coordinates?.let { fix ->
                     Text(fix.text(), color = Ink, fontSize = 14.sp)
                     Text("Captured ${ActivityTime.text(fix.capturedAt, ZoneId.of(record.timeZone), includeDate = true)}", color = Muted, fontSize = 12.sp)
+                    CoordinateMap(fix)
                 }
                 Text(record.timeText(), color = Muted, fontSize = 12.sp)
                 if (record.direction == "sent") Text(deliveryText(record), color = Muted, fontSize = 12.sp)
@@ -666,6 +678,77 @@ private fun HistoryList(records: List<ActivityRecord>) {
         }
     }
     records.firstOrNull { it.id == selectedId }?.let { record -> ListenerSnapshotDialog(record) { selectedId = null } }
+}
+
+@Composable
+private fun CoordinateMap(fix: Coordinates) {
+    val context = LocalContext.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val mapView = remember(context) {
+        Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", 0))
+        Configuration.getInstance().userAgentValue = "kNupdate/${BuildConfig.VERSION_NAME}"
+        MapView(context).apply {
+            setTileSource(TileSourceFactory.MAPNIK)
+            setMultiTouchControls(true)
+            setBuiltInZoomControls(false)
+            minZoomLevel = 2.0
+            maxZoomLevel = 20.0
+            // Keep the map in the app's restrained black-and-white visual system.
+            setLayerType(View.LAYER_TYPE_SOFTWARE, Paint().apply {
+                colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(0f) })
+            })
+        }
+    }
+
+    DisposableEffect(lifecycle, mapView) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> mapView.onResume()
+                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+        if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) mapView.onResume()
+        onDispose {
+            lifecycle.removeObserver(observer)
+            mapView.onPause()
+            mapView.onDetach()
+        }
+    }
+
+    AndroidView(
+        factory = { mapView },
+        modifier = Modifier.fillMaxWidth().height(220.dp).border(1.dp, Rule),
+        update = { view ->
+            val point = GeoPoint(fix.latitude, fix.longitude)
+            view.overlays.clear()
+            view.overlays += Polygon(view).apply {
+                points.addAll(Polygon.pointsAsCircle(point, fix.accuracyMeters))
+                setFillColor(android.graphics.Color.argb(38, 0, 0, 0))
+                setStrokeColor(android.graphics.Color.argb(150, 0, 0, 0))
+                setStrokeWidth(2f)
+            }
+            view.overlays += Marker(view).apply {
+                position = point
+                title = "Sender location"
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+            }
+            view.controller.setCenter(point)
+            view.controller.setZoom(mapZoom(fix.accuracyMeters))
+            view.invalidate()
+        }
+    )
+    Text("© OpenStreetMap contributors", color = Muted, fontSize = 11.sp,
+        modifier = Modifier.fillMaxWidth().padding(top = 2.dp))
+}
+
+private fun mapZoom(accuracyMeters: Double): Double = when {
+    accuracyMeters <= 25.0 -> 17.0
+    accuracyMeters <= 100.0 -> 15.0
+    accuracyMeters <= 500.0 -> 13.0
+    accuracyMeters <= 2_000.0 -> 11.0
+    else -> 9.0
 }
 
 @Composable
