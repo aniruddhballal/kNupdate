@@ -106,19 +106,17 @@ internal fun ListenerDirectoryDialog(onDismiss: () -> Unit) {
     ListenerDialog("listener-directory-dialog", onDismiss) {
         Text("Private connections", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.Black)
         Text("Pair devices first. Names are labels; delivery uses paired device identities.", fontSize = 13.sp, color = Color(0xff555555))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            BlackButton("INVITE", onClick = {
-                scope.launch {
-                    try {
-                        val client = RelayClient.app(context)
-                        client.register(DeviceIdentity.displayName(context))
-                        inviteCode = client.invite().getString("code")
-                        pairingMessage = "Share this code with the other device. It expires in 10 minutes."
-                    } catch (_: Exception) { pairingMessage = "Could not create an invite." }
-                }
-            }, modifier = Modifier.weight(1f))
-            TimeButton("REFRESH", { refresh++ }, Modifier.weight(1f))
-        }
+        BlackButton("CREATE INVITE", onClick = {
+            scope.launch {
+                try {
+                    val client = RelayClient.app(context)
+                    client.register(DeviceIdentity.displayName(context))
+                    inviteCode = client.invite().getString("code")
+                    pairingMessage = "Share this code with the other device. It expires in 10 minutes."
+                } catch (_: Exception) { pairingMessage = "Could not create an invite." }
+            }
+        }, modifier = Modifier.fillMaxWidth())
+        TimeButton("REFRESH", { refresh++ }, Modifier.fillMaxWidth())
         inviteCode?.let { code ->
             Text(code, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.Black)
         }
