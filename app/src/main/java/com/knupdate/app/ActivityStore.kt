@@ -56,7 +56,7 @@ data class ActivityRecord(
             require(end == null || (end > start && end <= System.currentTimeMillis() + 60_000))
             ZoneId.of(zone)
             val coordinates = if (json.has("coordinates")) Coordinates.fromJson(json.getJSONObject("coordinates")) else null
-            require(coordinates == null || (end == null && coordinates.capturedAt >= start &&
+            require(coordinates == null || (coordinates.capturedAt >= start &&
                 coordinates.capturedAt <= System.currentTimeMillis() + 60_000))
             return ActivityRecord(id, title, body, start, end, zone, direction = "received", status = "received", coordinates = coordinates)
         }

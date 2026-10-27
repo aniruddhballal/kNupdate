@@ -15,7 +15,11 @@ The app displays its version beside `kN`. Android metadata and the UI share `ver
 6. The last required acknowledgement removes the activity payload. A 30-second expiry removes unacknowledged copies; no listeners means immediate disposal. A separate, private receipt report can remain in memory until the sender collects the completed report, or until the original 30-second deadline. Concurrent activities have independent lifetimes.
 7. Sent history stays in **Sent**; incoming activity stays in **Inbox**. No offline catch-up is implemented. Only the optional coordinate snapshot supports an explicit scheduled send (see below). A failed POST is marked unconfirmed because a network timeout cannot prove whether the server accepted it.
 
-## Optional location coordinates
+## Location beacon and coordinates
+
+The globe icon beside the receiving switch is the app-wide **location beacon**. It is enabled by default, but appears barred until Android location permission and the device location setting are available. Tapping it requests permission and opens Android's location settings when needed. Turning the device location off makes the icon barred again; turning it back on restores the beacon if the app preference is still enabled. Turning the beacon off prevents coordinates from being sent with every activity, except the explicit **Current location -> Share coordinates** activity.
+
+When the beacon is on, every ordinary **kNupdate** obtains one fresh location snapshot before sending, including activities with a single timestamp or a range. If permission, device location, or a fresh fix is unavailable, the activity is not sent without coordinates. The default **Live** mode starts the snapshot request when kNupdate is pressed. Custom ordinary times remain past-only. The explicit Current location activity can also schedule a future one-time snapshot; its Description-only mode follows the app-wide beacon preference.
 
 Choose **Everyday → Location → Share coordinates**, grant Android location permission, keep the phone's location switched on, then tap **kNupdate**. The default **Live** mode starts a fresh snapshot request when kNupdate is pressed. **Custom** optionally selects a future time today. Description-only location updates and all other activities allow past custom times. Coordinate snapshots use one timestamp, not a range.
 
@@ -27,7 +31,7 @@ For future sends on Android 12+, the app opens **Alarms & reminders** settings i
 
 Both Sent and Inbox retain coordinates and capture time in private local SQLite, and the expanded incoming notification includes the coordinates. Existing local databases migrate without losing history. Maps remain deferred. Coordinates follow the existing relay lifetime: plaintext in process memory until all eligible listeners acknowledge, or at most 30 seconds; no Cloudflare database, KV, durable queue, or payload logging is added. The relay and its public pending-update endpoint remain public, as described below.
 
-Deploy the updated `backend` before using coordinate sends against an existing relay: the earlier relay rejects the additional field. Local validation uses synthetic coordinates, including a real HTTP/Android SQLite round trip. Physical-device GPS acquisition and screen-off timing still need acceptance testing.
+Deploy the updated `backend` before using beacon sends against an existing relay: the earlier relay rejects coordinate-bearing ranges. Local validation uses synthetic coordinates, including a real HTTP/Android SQLite round trip. Physical-device GPS acquisition and screen-off timing still need acceptance testing.
 
 A listener is a random, temporary session handle. It is regenerated when receiving starts or Android reports loss of connectivity. It is not an account or device ID. An explicitly shared display name can label that session, but does not authenticate a person. Online/offline detection is approximate: a dropped TCP connection cannot always be detected immediately, and the lease deliberately allows a small gap between requests. A failed delivery can remain pending until expiry.
 

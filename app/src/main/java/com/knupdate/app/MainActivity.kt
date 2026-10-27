@@ -56,6 +56,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -93,6 +94,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Surface
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.repeatOnLifecycle
 import java.time.Instant
 import java.time.LocalDate
@@ -237,6 +239,27 @@ private fun ReceivingToggle(receiver: ReceiverState, onChange: (Boolean) -> Unit
 }
 
 @Composable
+private fun LocationBeaconToggle(active: Boolean, onChange: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(48.dp)
+            .semantics {
+                contentDescription = "Location beacon"
+                stateDescription = if (active) "Location sharing on" else "Location sharing off or unavailable"
+            }
+            .toggleable(value = active, role = Role.Switch, onValueChange = { onChange() }),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            painter = painterResource(if (active) R.drawable.ic_location_beacon else R.drawable.ic_location_barred),
+            contentDescription = null,
+            tint = Ink,
+            modifier = Modifier.size(26.dp)
+        )
+    }
+}
+
+@Composable
 private fun IconNavigation(selected: String, onSelect: (String) -> Unit) {
     val items = listOf(
         Triple("New", "New activity", R.drawable.ic_add),
@@ -344,6 +367,8 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
     var shareCoordinates by rememberSaveable { mutableStateOf(false) }
     var showReceivingOptions by rememberSaveable { mutableStateOf(false) }
     var showListeners by rememberSaveable { mutableStateOf(false) }
+    var locationBeaconRequested by remember { mutableStateOf(LocationBeacon.requested(context)) }
+    var locationBeaconActive by remember { mutableStateOf(LocationBeacon.active(context)) }
     val selectedActivity = ACTIVITY_OPTIONS.firstOrNull { it.id == selectedActivityId } ?: ACTIVITY_OPTIONS.first()
     val selectedGroup = ACTIVITY_GROUPS.firstOrNull { it.id == selectedGroupId } ?: ACTIVITY_GROUPS.first()
     val coordinateMode = selectedActivityId == "location" && shareCoordinates
@@ -365,6 +390,49 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
         try {
             ContextCompat.startForegroundService(context, Intent(context, ReceiverService::class.java))
         } catch (_: Exception) { receiverError = "Could not start receiving." }
+    }
+
+    fun refreshLocationBeacon() {
+        locationBeaconRequested = LocationBeacon.requested(context)
+        locationBeaconActive = LocationBeacon.active(context)
+    }
+
+    val locationSettingsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        refreshLocationBeacon()
+    }
+    val locationBeaconPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        refreshLocationBeacon()
+        if (LocationBeacon.requested(context) && LocationCapture.permitted(context) && !LocationCapture.enabled(context)) {
+            try { locationSettingsLauncher.launch(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)) } catch (_: Exception) { }
+        }
+    }
+
+    fun enableLocationBeacon() {
+        LocationBeacon.setRequested(context, true)
+        refreshLocationBeacon()
+        when {
+            !LocationCapture.permitted(context) -> locationBeaconPermissionLauncher.launch(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+            !LocationCapture.enabled(context) -> try {
+                locationSettingsLauncher.launch(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+            } catch (_: Exception) { }
+        }
+    }
+
+    fun changeLocationBeacon() {
+        if (locationBeaconActive) {
+            LocationBeacon.setRequested(context, false)
+            refreshLocationBeacon()
+        } else enableLocationBeacon()
+    }
+
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) refreshLocationBeacon()
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
@@ -436,11 +504,23 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
             } catch (_: Exception) { timeError = "Could not start location sharing. Keep the app open and check location permission." }
             return
         }
+        if (locationBeaconRequested) {
+            if (!LocationCapture.permitted(context)) {
+                timeError = "Allow location access to send this update with coordinates."
+                enableLocationBeacon()
+                return
+            }
+            if (!LocationCapture.enabled(context)) {
+                timeError = "Turn on phone location to send this update with coordinates."
+                enableLocationBeacon()
+                return
+            }
+        }
         val update = ActivityRecord(title = selectedActivity.title, body = selectedBody,
             startAt = selectedTime.startAt, endAt = selectedTime.endAt)
         lastSentId = update.id
         timeError = null
-        SendCoordinator.send(context, update)
+        SendCoordinator.send(context, update, requireCoordinates = locationBeaconRequested)
     }
 
     Column(modifier = Modifier.fillMaxSize().background(Paper).statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp)) {
@@ -450,6 +530,7 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
                     .clickable(role = Role.Button) { showListeners = true }, contentAlignment = Alignment.Center) {
                     Icon(painterResource(R.drawable.ic_activity_meeting_people), null, tint = Ink, modifier = Modifier.size(24.dp))
                 }
+                LocationBeaconToggle(locationBeaconActive, ::changeLocationBeacon)
                 ReceivingToggle(receiver, ::changeReceiving)
             }
         }

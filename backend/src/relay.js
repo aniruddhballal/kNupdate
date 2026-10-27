@@ -59,7 +59,7 @@ export function validateActivity(value, now) {
         Object.keys(fix).some(key => !fields.includes(key)) ||
         fix.latitude < -90 || fix.latitude > 90 || fix.longitude < -180 || fix.longitude > 180 ||
         fix.accuracyMeters < 0 || !Number.isSafeInteger(fix.capturedAt) ||
-        fix.capturedAt < value.startAt || fix.capturedAt > now + 60_000 || value.endAt !== null) {
+        fix.capturedAt < value.startAt || fix.capturedAt > now + 60_000) {
       throw new HttpError(400, "Invalid coordinates or capture time.");
     }
     result.coordinates = Object.fromEntries(fields.map(key => [key, fix[key]]));

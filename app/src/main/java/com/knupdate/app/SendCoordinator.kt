@@ -15,27 +15,39 @@ object SendCoordinator {
     private val mutableError = MutableStateFlow<String?>(null)
     val error = mutableError.asStateFlow()
 
-    fun send(context: Context, record: ActivityRecord) {
+    fun send(context: Context, record: ActivityRecord, requireCoordinates: Boolean = false) {
         if (!mutableSending.compareAndSet(false, true)) return
         mutableError.value = null
         val appContext = context.applicationContext
         scope.launch {
             try {
                 val store = ActivityStore.get(appContext)
+                val prepared = if (requireCoordinates) {
+                    check(LocationBeacon.requested(appContext)) { "Location sharing was turned off." }
+                    check(LocationCapture.permitted(appContext) && LocationCapture.enabled(appContext)) {
+                        "Phone location is unavailable."
+                    }
+                    record.copy(coordinates = LocationCapture.fresh(appContext))
+                } else record
                 // A durable local copy is required before any network request.
-                if (!store.insert(record)) return@launch
+                if (!store.insert(prepared)) return@launch
                 val url = RelaySettings.url()
-                if (url.isBlank()) { store.updateStatus(record.id, "local"); return@launch }
+                if (url.isBlank()) { store.updateStatus(prepared.id, "local"); return@launch }
                 try {
-                    val result = RelayClient(url).publish(record, ReceiverStatus.session)
-                    store.recordAcceptance(record.id, result)
-                    ReceiptCoordinator.track(appContext, record.id)
+                    check(!requireCoordinates || LocationBeacon.requested(appContext)) {
+                        "Location sharing was turned off before sending."
+                    }
+                    val result = RelayClient(url).publish(prepared, ReceiverStatus.session)
+                    store.recordAcceptance(prepared.id, result)
+                    ReceiptCoordinator.track(appContext, prepared.id)
                 } catch (_: Exception) {
                     // A timeout could follow acceptance. Never queue or rebroadcast silently.
-                    store.updateStatus(record.id, "uncertain")
+                    store.updateStatus(prepared.id, "uncertain")
                 }
             } catch (_: Exception) {
-                mutableError.value = "Could not save this activity on the phone. Check available storage."
+                mutableError.value = if (requireCoordinates) {
+                    "Could not get a fresh location fix. The update was not sent."
+                } else "Could not save this activity on the phone. Check available storage."
             } finally { mutableSending.value = false }
         }
     }

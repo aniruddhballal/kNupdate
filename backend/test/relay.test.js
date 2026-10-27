@@ -117,7 +117,7 @@ test("optional coordinates are strictly validated and cannot carry extra identit
     { ...fix, capturedAt: now + 0.5 }, { ...fix, name: "private" }]) {
     assert.throws(() => validateActivity({ ...value, coordinates }, now), { status: 400 });
   }
-  assert.throws(() => validateActivity({ ...value, endAt: now }, now), { status: 400 });
+  assert.deepEqual(validateActivity({ ...value, endAt: now, coordinates: { ...fix, capturedAt: now } }, now).coordinates, fix);
   assert.ok(!Object.hasOwn(validateActivity(activity(now), now), "coordinates"));
 });
 

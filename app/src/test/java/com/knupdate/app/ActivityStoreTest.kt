@@ -189,7 +189,8 @@ class ActivityStoreTest {
             assertThrows(Exception::class.java) { ActivityRecord.fromWire(value.wireJson().put("coordinates", bad)) }
         }
         assertThrows(Exception::class.java) { ActivityRecord.fromWire(value.wireJson().put("coordinates", JSONObject.NULL)) }
-        assertThrows(Exception::class.java) { ActivityRecord.fromWire(record().wireJson().put("coordinates", fix)) }
+        val ranged = record().wireJson().put("coordinates", fix)
+        assertNotNull(ActivityRecord.fromWire(ranged).endAt)
     }
 
     @Test fun exactTimesSurviveWireAndBothLocalHistories() {
