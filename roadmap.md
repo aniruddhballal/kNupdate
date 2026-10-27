@@ -7,7 +7,9 @@
 - Ticking Live time by default, resolved at the send-button press, with optional custom timestamp/range editing.
 - Audited custom-time capabilities for all 100 activities, with At-only events/snapshots and both-mode ongoing activities; shared editor/send validation.
 - Migration of the previous local history without uploading it.
-- Public plaintext relay using Cloudflare Workers and one Durable Object.
+- Authenticated relay using Cloudflare Workers and one Durable Object.
+- Anonymous persistent device identities with short-lived pairing invites and mutual pairing metadata.
+- Recipient selection and server-side targeted delivery to selected paired devices.
 - Activity payloads held in memory only; no cloud database or file history.
 - Long polling, ephemeral listener sessions, multiple simultaneous recipients and updates.
 - Local commit before acknowledgement; duplicate suppression.
@@ -30,6 +32,7 @@
 - [x] Verify a synthetic live background delivery, notification, local persistence, and deletion after the last of two listener acknowledgements using one phone and a temporary test listener.
 - [x] Deploy the coordinate relay update to the owner's `aniruddhballaldeeksha.workers.dev` endpoint (27 October 2026); verify live coordinate validation without publishing an update.
 - [ ] Verify physical-device location permission, fresh fixes, scheduled screen-off sending and cancellation.
+- [ ] Verify pairing and selected-recipient delivery on at least two physical phones.
 - Install the configured APK on at least two phones.
 - Verify notification permissions, screen-off receiving, internet toggling and OEM battery behavior.
 - Verify Android foreground-service timeout and explicit restart on a physical device.
@@ -37,10 +40,9 @@
 
 ## Later
 
-1. Design routing only to connections without putting names in activity payloads.
-2. Design and review end-to-end encryption and any shared-folder transport.
-3. Decide whether best-effort background receiving meets the product need or requires a push transport.
-4. Add abuse controls before treating the unrestricted public endpoint as a broad public service.
-5. Display locally stored coordinates on an open-source map.
+1. Design and review end-to-end encryption and any shared-folder transport.
+2. Decide whether best-effort background receiving meets the product need or requires a push transport.
+3. Add abuse controls before treating the relay as a broad public service.
+4. Display locally stored coordinates on an open-source map.
 
-No accounts, permanent device identifiers, connection graph, offline catch-up, cloud activity history, or encryption are implemented in this phase.
+No accounts, phone numbers, email addresses, offline catch-up, cloud activity history, or end-to-end encryption are implemented in this phase.

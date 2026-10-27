@@ -26,6 +26,7 @@ data class ActivityRecord(
     val legacy: Boolean = false,
     val coordinates: Coordinates? = null,
     val recipients: List<ListenerReceipt>? = null,
+    val recipientIds: List<String>? = null,
     val receiptKey: String? = if (direction == "sent") UUID.randomUUID().toString() else null,
     val receiptExpiresAt: Long? = null
 ) {
@@ -63,7 +64,7 @@ data class ActivityRecord(
     }
 }
 
-class ActivityStore internal constructor(context: Context, databaseName: String = "activities.db") : SQLiteOpenHelper(context, databaseName, null, 3) {
+class ActivityStore internal constructor(context: Context, databaseName: String = "activities.db") : SQLiteOpenHelper(context, databaseName, null, 4) {
     private val preferences = context.getSharedPreferences("knupdate_local", Context.MODE_PRIVATE)
     private val mutableRecords = MutableStateFlow<List<ActivityRecord>>(emptyList())
     val records = mutableRecords.asStateFlow()
@@ -75,7 +76,7 @@ class ActivityStore internal constructor(context: Context, databaseName: String 
             start_at INTEGER NOT NULL, end_at INTEGER, time_zone TEXT NOT NULL,
             created_at INTEGER NOT NULL, direction TEXT NOT NULL, status TEXT NOT NULL,
             listeners INTEGER, legacy INTEGER NOT NULL DEFAULT 0, coordinates TEXT,
-            recipients TEXT, receipt_key TEXT, receipt_expires_at INTEGER)""")
+            recipients TEXT, recipient_ids TEXT, receipt_key TEXT, receipt_expires_at INTEGER)""")
         db.execSQL("CREATE INDEX activity_order ON activities(created_at DESC)")
     }
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -85,6 +86,7 @@ class ActivityStore internal constructor(context: Context, databaseName: String 
             db.execSQL("ALTER TABLE activities ADD COLUMN receipt_key TEXT")
             db.execSQL("ALTER TABLE activities ADD COLUMN receipt_expires_at INTEGER")
         }
+        if (oldVersion < 4) db.execSQL("ALTER TABLE activities ADD COLUMN recipient_ids TEXT")
     }
 
     @Synchronized fun load() {
@@ -163,6 +165,7 @@ class ActivityStore internal constructor(context: Context, databaseName: String 
         put("listeners", record.listeners); put("legacy", if (record.legacy) 1 else 0)
         put("coordinates", record.coordinates?.json()?.toString())
         put("recipients", record.recipients?.let(ListenerReceipt::json))
+        put("recipient_ids", record.recipientIds?.let { JSONArray(it).toString() })
         put("receipt_key", record.receiptKey); put("receipt_expires_at", record.receiptExpiresAt)
     }
 
@@ -177,8 +180,11 @@ class ActivityStore internal constructor(context: Context, databaseName: String 
                         status = cursor.getString(8), listeners = if (cursor.isNull(9)) null else cursor.getInt(9), legacy = cursor.getInt(10) == 1,
                         coordinates = if (cursor.isNull(11)) null else Coordinates.fromJson(JSONObject(cursor.getString(11))),
                         recipients = if (cursor.isNull(12)) null else ListenerReceipt.parse(JSONArray(cursor.getString(12))),
-                        receiptKey = if (cursor.isNull(13)) null else cursor.getString(13),
-                        receiptExpiresAt = if (cursor.isNull(14)) null else cursor.getLong(14)
+                        recipientIds = if (cursor.isNull(13)) null else JSONArray(cursor.getString(13)).let { array ->
+                            (0 until array.length()).map { index -> UUID.fromString(array.getString(index)).toString() }
+                        },
+                        receiptKey = if (cursor.isNull(14)) null else cursor.getString(14),
+                        receiptExpiresAt = if (cursor.isNull(15)) null else cursor.getLong(15)
                     ))
                 }
             }

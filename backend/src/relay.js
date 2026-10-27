@@ -1,8 +1,12 @@
 export const TTL_MS = 30_000;
 export const POLL_MS = 25_000;
+const PAIRING_TTL_MS = 10 * 60_000;
 const MAX_INFLIGHT = 100;
 const MAX_LISTENERS = 100;
+const MAX_DEVICES = 10_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const PAIRING_CODE = /^[A-HJ-NP-Z2-9]{10}$/;
+const PAIRING_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 export class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -11,6 +15,16 @@ export class HttpError extends Error {
 export function validateSession(session) {
   if (typeof session !== "string" || !UUID.test(session)) throw new HttpError(400, "A random session UUID is required.");
   return session;
+}
+
+export function validateDeviceId(deviceId) {
+  if (typeof deviceId !== "string" || !UUID.test(deviceId)) throw new HttpError(401, "A registered device identity is required.");
+  return deviceId.toLowerCase();
+}
+
+export function validateDeviceToken(token) {
+  if (typeof token !== "string" || !UUID.test(token)) throw new HttpError(401, "A registered device credential is required.");
+  return token.toLowerCase();
 }
 
 export function validateListenerName(name) {
@@ -22,7 +36,29 @@ export function validateListenerName(name) {
   return name.trim();
 }
 
-// UTF-8 names travel in a header rather than a URL or the activity payload.
+function validateRecipientIds(value, { allowEmpty = true } = {}) {
+  if (!Array.isArray(value) || value.length > MAX_LISTENERS || (!allowEmpty && value.length === 0) ||
+      value.some(id => typeof id !== "string" || !UUID.test(id))) {
+    throw new HttpError(400, "Choose one or more valid recipient devices.");
+  }
+  const result = value.map(id => id.toLowerCase());
+  if (new Set(result).size !== result.length) throw new HttpError(400, "Recipient devices must be unique.");
+  return result;
+}
+
+function validatePairingCode(code) {
+  if (typeof code !== "string" || !PAIRING_CODE.test(code.trim().toUpperCase())) {
+    throw new HttpError(400, "Enter a valid pairing code.");
+  }
+  return code.trim().toUpperCase();
+}
+
+function newPairingCode() {
+  const values = new Uint8Array(10);
+  crypto.getRandomValues(values);
+  return [...values].map(value => PAIRING_ALPHABET[value % PAIRING_ALPHABET.length]).join("");
+}
+
 export function decodeListenerName(header) {
   if (header === null || header === undefined) return null;
   try {
@@ -67,18 +103,22 @@ export function validateActivity(value, now) {
   return result;
 }
 
-// All transitions are synchronous. Payloads live only in this object's memory.
-// Sessions are random, short-lived listener handles, never user/device identities.
+// Activity payloads remain ephemeral. Device identities and pair relationships are
+// metadata and may be persisted by the Durable Object wrapper separately.
 export class Relay {
   constructor({ now = Date.now, pollMs = POLL_MS } = {}) {
     this.records = new Map();
     this.waiters = new Map();
     this.sessions = new Map();
+    this.sessionDevices = new Map();
     this.listenerNames = new Map();
     this.receipts = new Map();
     this.receiptWaiters = new Map();
+    this.devices = new Map();
+    this.pairingCodes = new Map();
     this.now = now;
     this.pollMs = pollMs;
+    this.metadataDirty = false;
     this.prune();
   }
 
@@ -87,7 +127,11 @@ export class Relay {
       if (record.expiresAt <= this.now()) this.records.delete(id);
     }
     for (const [session, until] of this.sessions) {
-      if (until <= this.now()) { this.sessions.delete(session); this.listenerNames.delete(session); }
+      if (until <= this.now()) {
+        this.sessions.delete(session);
+        this.sessionDevices.delete(session);
+        this.listenerNames.delete(session);
+      }
     }
     for (const [id, receipt] of this.receipts) {
       if (receipt.expiresAt <= this.now()) {
@@ -95,6 +139,113 @@ export class Relay {
         this.receipts.delete(id);
       }
     }
+    for (const [code, invite] of this.pairingCodes) {
+      if (invite.expiresAt <= this.now()) this.pairingCodes.delete(code);
+    }
+  }
+
+  registerDevice(deviceId, token, name) {
+    const id = validateDeviceId(deviceId);
+    const credential = validateDeviceToken(token);
+    const displayName = validateListenerName(name);
+    const current = this.devices.get(id);
+    if (current && current.token !== credential) throw new HttpError(401, "Device credential does not match.");
+    if (!current) {
+      if (this.devices.size >= MAX_DEVICES) throw new HttpError(503, "Device limit reached.");
+      this.devices.set(id, { token: credential, name: displayName, paired: new Set(), createdAt: this.now() });
+      this.metadataDirty = true;
+    } else if (current.name !== displayName) {
+      current.name = displayName;
+      this.metadataDirty = true;
+    }
+    return this.profile(id);
+  }
+
+  authenticate(deviceId, token) {
+    const id = validateDeviceId(deviceId);
+    const credential = validateDeviceToken(token);
+    const device = this.devices.get(id);
+    if (!device || device.token !== credential) throw new HttpError(401, "Device is not registered.");
+    return { id, device };
+  }
+
+  profile(deviceId) {
+    const id = validateDeviceId(deviceId);
+    const device = this.devices.get(id);
+    if (!device) throw new HttpError(404, "Device is not registered.");
+    return { id, name: device.name, createdAt: device.createdAt };
+  }
+
+  createPairingInvite(deviceId, token) {
+    const { id } = this.authenticate(deviceId, token);
+    this.prune();
+    let code;
+    do { code = newPairingCode(); } while (this.pairingCodes.has(code));
+    const expiresAt = this.now() + PAIRING_TTL_MS;
+    this.pairingCodes.set(code, { deviceId: id, expiresAt });
+    return { code, expiresAt };
+  }
+
+  acceptPairing(deviceId, token, rawCode) {
+    const { id } = this.authenticate(deviceId, token);
+    const code = validatePairingCode(rawCode);
+    this.prune();
+    const invite = this.pairingCodes.get(code);
+    if (!invite) throw new HttpError(404, "Pairing code is expired or unknown.");
+    if (invite.deviceId === id) throw new HttpError(400, "A device cannot pair with itself.");
+    const inviter = this.devices.get(invite.deviceId);
+    if (!inviter) throw new HttpError(404, "The inviting device is no longer registered.");
+    const device = this.devices.get(id);
+    inviter.paired.add(id);
+    device.paired.add(invite.deviceId);
+    this.pairingCodes.delete(code);
+    this.metadataDirty = true;
+    return { paired: true, peer: this.profile(invite.deviceId) };
+  }
+
+  pairedDevices(deviceId, token) {
+    const { device } = this.authenticate(deviceId, token);
+    return { peers: [...device.paired].map(id => this.profile(id)) };
+  }
+
+  unpair(deviceId, token, peerId) {
+    const { id, device } = this.authenticate(deviceId, token);
+    const peer = validateDeviceId(peerId);
+    device.paired.delete(peer);
+    this.devices.get(peer)?.paired.delete(id);
+    this.metadataDirty = true;
+    return { unpaired: true };
+  }
+
+  identitySnapshot() {
+    return {
+      devices: [...this.devices.entries()].map(([id, device]) => ({ id, token: device.token, name: device.name, createdAt: device.createdAt })),
+      pairs: [...this.devices.entries()].flatMap(([id, device]) => [...device.paired].filter(peer => id < peer).map(peer => [id, peer]))
+    };
+  }
+
+  restoreIdentity(snapshot) {
+    if (!snapshot || !Array.isArray(snapshot.devices) || !Array.isArray(snapshot.pairs)) return;
+    for (const value of snapshot.devices) {
+      try {
+        const id = validateDeviceId(value.id);
+        const token = validateDeviceToken(value.token);
+        const name = validateListenerName(value.name);
+        this.devices.set(id, { token, name, paired: new Set(), createdAt: Number.isSafeInteger(value.createdAt) ? value.createdAt : this.now() });
+      } catch { /* Ignore malformed metadata rather than blocking the relay. */ }
+    }
+    for (const pair of snapshot.pairs) {
+      if (!Array.isArray(pair) || pair.length !== 2) continue;
+      const first = this.devices.get(pair[0]), second = this.devices.get(pair[1]);
+      if (first && second) { first.paired.add(pair[1]); second.paired.add(pair[0]); }
+    }
+    this.metadataDirty = false;
+  }
+
+  takeMetadataDirty() {
+    const dirty = this.metadataDirty;
+    this.metadataDirty = false;
+    return dirty;
   }
 
   available(session) {
@@ -104,13 +255,25 @@ export class Relay {
       .map(record => ({ ...record.activity, expiresAt: record.expiresAt }));
   }
 
-  poll(session, signal, displayName = null) {
+  assertSessionOwner(session, deviceId) {
+    const owner = this.sessionDevices.get(session);
+    if (owner && owner !== deviceId) throw new HttpError(403, "This session belongs to another device.");
+  }
+
+  poll(session, signal, displayName = null, deviceId = null, token = null) {
     validateSession(session);
+    if (deviceId !== null) {
+      const auth = this.authenticate(deviceId, token);
+      this.assertSessionOwner(session, auth.id);
+      deviceId = auth.id;
+    } else {
+      deviceId = `legacy:${session}`;
+    }
     const name = validateListenerName(displayName);
     this.prune();
     if (!this.sessions.has(session) && this.sessions.size >= MAX_LISTENERS) throw new HttpError(503, "Listener limit reached.");
+    this.sessionDevices.set(session, deviceId);
     this.listenerNames.set(session, name);
-    // A short lease covers the network gap between a result, its ACK and the next poll.
     this.sessions.set(session, this.now() + this.pollMs + 5_000);
     const available = this.available(session);
     if (available.length) {
@@ -119,7 +282,7 @@ export class Relay {
     }
     this.waiters.get(session)?.finish([]);
     if (this.waiters.size >= MAX_LISTENERS) throw new HttpError(503, "Listener limit reached.");
-    if (signal?.aborted) { this.sessions.delete(session); this.listenerNames.delete(session); return Promise.resolve([]); }
+    if (signal?.aborted) { this.close(session); return Promise.resolve([]); }
     this.sessions.set(session, this.now() + this.pollMs + 5_000);
     return new Promise(resolve => {
       const entry = {
@@ -131,46 +294,69 @@ export class Relay {
           resolve(updates);
         }
       };
-      entry.abort = () => { entry.finish([]); this.sessions.delete(session); this.listenerNames.delete(session); };
+      entry.abort = () => { entry.finish([]); this.close(session); };
       entry.timer = setTimeout(() => entry.finish([]), this.pollMs);
       this.waiters.set(session, entry);
       signal?.addEventListener("abort", entry.abort, { once: true });
     });
   }
 
-  publish(input, senderSession, receiptKey = null) {
-    const activity = validateActivity(input, this.now());
-    if (senderSession) validateSession(senderSession);
+  publish(input, senderSession, receiptKey = null, senderDeviceId = null, token = null) {
+    const targeted = input && Object.hasOwn(input, "activity");
+    const activity = validateActivity(targeted ? input.activity : input, this.now());
+    const recipientIds = targeted ? validateRecipientIds(input.recipientIds, { allowEmpty: true }) : null;
+    let sender = null;
+    if (senderDeviceId !== null) {
+      sender = this.authenticate(senderDeviceId, token);
+      if (senderSession) { validateSession(senderSession); this.assertSessionOwner(senderSession, sender.id); }
+      if (recipientIds === null) throw new HttpError(400, "A recipient list is required for private delivery.");
+      if (recipientIds.includes(sender.id)) throw new HttpError(400, "The sender cannot be a recipient.");
+      for (const recipient of recipientIds) {
+        if (!sender.device.paired.has(recipient)) throw new HttpError(403, "Every recipient must be paired with the sender.");
+      }
+    } else if (senderSession) validateSession(senderSession);
     if (receiptKey !== null) validateSession(receiptKey);
     this.prune();
     const previous = this.records.get(activity.id);
+    const requestedRecipients = recipientIds ? [...recipientIds].sort() : null;
+    const inputFingerprint = JSON.stringify({ activity, recipientIds: requestedRecipients });
     if (previous) {
-      if (JSON.stringify(previous.activity) !== JSON.stringify(activity) || previous.receiptKey !== receiptKey) throw new HttpError(409, "Activity ID already in use.");
+      if (previous.fingerprint !== inputFingerprint || previous.receiptKey !== receiptKey) throw new HttpError(409, "Activity ID already in use.");
       return structuredClone(previous.acceptance);
     }
     if (this.receipts.has(activity.id)) throw new HttpError(409, "Activity ID has already completed.");
     if (this.records.size >= MAX_INFLIGHT) throw new HttpError(503, "Relay is busy. Try again shortly.");
     if (receiptKey !== null && this.receipts.size >= MAX_INFLIGHT) throw new HttpError(503, "Receipt limit reached. Try again shortly.");
-    const recipients = [...this.sessions.keys()].filter(session => session !== senderSession);
+    const eligible = [...this.sessions.keys()].filter(session => {
+      if (session === senderSession) return false;
+      const sessionDevice = this.sessionDevices.get(session);
+      return recipientIds === null ? true : recipientIds.includes(sessionDevice);
+    });
     const expiresAt = this.now() + TTL_MS;
-    const snapshot = recipients.map(session => ({ id: crypto.randomUUID(), name: this.listenerNames.get(session) ?? null, confirmedAt: null }));
-    const acceptance = { accepted: true, listeners: recipients.length, recipients: snapshot,
-      expiresAt: recipients.length ? expiresAt : null, receiptExpiresAt: receiptKey !== null && recipients.length ? expiresAt : null };
-    if (recipients.length) {
-      const record = { activity, pending: recipients, expiresAt, receiptKey, acceptance,
-        receiptIds: new Map(recipients.map((session, index) => [session, snapshot[index].id])) };
+    const snapshot = eligible.map(session => {
+      const device = this.devices.get(this.sessionDevices.get(session));
+      return { id: crypto.randomUUID(), name: recipientIds ? (device?.name ?? null) : this.listenerNames.get(session) ?? null, confirmedAt: null };
+    });
+    const acceptance = { accepted: true, listeners: eligible.length, recipients: snapshot,
+      expiresAt: eligible.length ? expiresAt : null, receiptExpiresAt: receiptKey !== null && eligible.length ? expiresAt : null };
+    if (eligible.length) {
+      const record = { activity, pending: eligible, expiresAt, receiptKey,
+        fingerprint: inputFingerprint, acceptance, receiptIds: new Map(eligible.map((session, index) => [session, snapshot[index].id])) };
       if (receiptKey !== null) this.receipts.set(activity.id, {
-        key: receiptKey, expiresAt, revision: 0, recipients: structuredClone(snapshot)
+        key: receiptKey, senderDeviceId: sender?.id ?? null, expiresAt, revision: 0, recipients: structuredClone(snapshot)
       });
       this.records.set(activity.id, record);
-      for (const session of recipients) this.waiters.get(session)?.finish(this.available(session));
+      for (const session of eligible) this.waiters.get(session)?.finish(this.available(session));
     }
-    // With nobody listening there is nothing to retain, including the payload.
     return structuredClone(acceptance);
   }
 
-  acknowledge(session, ids) {
+  acknowledge(session, ids, deviceId = null, token = null) {
     validateSession(session);
+    if (deviceId !== null) {
+      const auth = this.authenticate(deviceId, token);
+      this.assertSessionOwner(session, auth.id);
+    }
     if (!Array.isArray(ids) || ids.length > MAX_INFLIGHT || ids.some(id => typeof id !== "string" || !UUID.test(id))) {
       throw new HttpError(400, "Expected an array of activity UUIDs.");
     }
@@ -196,10 +382,13 @@ export class Relay {
     return [...this.records.values()].map(record => ({ ...record.activity, expiresAt: record.expiresAt }));
   }
 
-  activeListeners(session = null) {
-    if (session !== null) validateSession(session);
+  activeListeners(session = null, deviceId = null, token = null) {
+    if (deviceId !== null) {
+      const auth = this.authenticate(deviceId, token);
+      if (session !== null) { validateSession(session); this.assertSessionOwner(session, auth.id); }
+    } else if (session !== null) validateSession(session);
     this.prune();
-    return { asOf: this.now(), listeners: [...this.sessions.keys()].map(id => ({ name: this.listenerNames.get(id) ?? null, self: id === session })) };
+    return { asOf: this.now(), listeners: [...this.sessions.keys()].map(id => ({ name: this.listenerNames.get(id) ?? this.devices.get(this.sessionDevices.get(id))?.name ?? null, self: id === session })) };
   }
 
   receiptView(receipt, expired = false) {
@@ -207,17 +396,18 @@ export class Relay {
       complete: receipt.recipients.every(value => value.confirmedAt !== null), expired };
   }
 
-  findReceipt(id, key) {
+  findReceipt(id, key, deviceId = null, token = null) {
     validateSession(id);
     validateSession(key);
+    if (deviceId !== null) this.authenticate(deviceId, token);
     this.prune();
     const receipt = this.receipts.get(id);
-    if (!receipt || receipt.key !== key) throw new HttpError(404, "Receipt report is unavailable.");
+    if (!receipt || receipt.key !== key || (deviceId !== null && receipt.senderDeviceId !== deviceId)) throw new HttpError(404, "Receipt report is unavailable.");
     return receipt;
   }
 
-  pollReceipts(id, key, after = -1, signal) {
-    const receipt = this.findReceipt(id, key);
+  pollReceipts(id, key, after = -1, signal, deviceId = null, token = null) {
+    const receipt = this.findReceipt(id, key, deviceId, token);
     if (!Number.isSafeInteger(after) || after < -1 || after > MAX_LISTENERS) throw new HttpError(400, "Invalid receipt revision.");
     const view = this.receiptView(receipt);
     if (view.revision > after || view.complete || signal?.aborted) return Promise.resolve(view);
@@ -241,20 +431,27 @@ export class Relay {
     });
   }
 
-  forgetReceipts(id, key) {
-    const receipt = this.findReceipt(id, key);
+  forgetReceipts(id, key, deviceId = null, token = null) {
+    const receipt = this.findReceipt(id, key, deviceId, token);
     this.receiptWaiters.get(id)?.finish(this.receiptView(receipt, true));
     this.receipts.delete(id);
     return { forgotten: true };
   }
 
-  close(session) {
-    this.waiters.get(validateSession(session))?.finish([]);
+  close(session, deviceId = null, token = null) {
+    validateSession(session);
+    if (deviceId !== null) {
+      const auth = this.authenticate(deviceId, token);
+      this.assertSessionOwner(session, auth.id);
+    }
+    this.waiters.get(session)?.finish([]);
     this.sessions.delete(session);
+    this.sessionDevices.delete(session);
     this.listenerNames.delete(session);
   }
+
   get nextExpiry() {
     return Math.min(...[...this.records.values()].map(record => record.expiresAt), ...this.sessions.values(),
-      ...[...this.receipts.values()].map(receipt => receipt.expiresAt));
+      ...[...this.receipts.values()].map(receipt => receipt.expiresAt), ...[...this.pairingCodes.values()].map(invite => invite.expiresAt));
   }
 }

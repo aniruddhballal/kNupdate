@@ -65,6 +65,8 @@ The activity catalog/grid and exact-time controls were first built as **1.2.0 (c
 
 **1.6.6 (code 27)** refreshes the Therapy and Meal prep icons, keeps activity and detail labels on one line, and gives the live clock—including Current location—one consistent timestamp-only display without a visible “Live” prefix.
 
+**1.7.0 (code 28)** adds anonymous persistent device identities, short-lived mutual pairing invites, paired-device management, authenticated relay requests, and explicit selected-recipient delivery. The relay persists only identity and pairing metadata; activity payloads remain ephemeral. This feature release requires the updated backend and APK. End-to-end encryption is still a later feature.
+
 Every normal app APK/AAB build reserves the next patch version and increments versionCode once per Gradle invocation. Debug, preview and release variants in the same invocation share that reservation. This includes full `build`, `assemble`, `bundle`, `package` and `install` artifact tasks, including Android Studio's normal `:app:assembleDebug` invocation. Use complete task names rather than abbreviations.
 
 ```powershell

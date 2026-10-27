@@ -15,7 +15,7 @@ object SendCoordinator {
     private val mutableError = MutableStateFlow<String?>(null)
     val error = mutableError.asStateFlow()
 
-    fun send(context: Context, record: ActivityRecord, requireCoordinates: Boolean = false) {
+    fun send(context: Context, record: ActivityRecord, recipientIds: List<String>, requireCoordinates: Boolean = false) {
         if (!mutableSending.compareAndSet(false, true)) return
         mutableError.value = null
         val appContext = context.applicationContext
@@ -37,7 +37,9 @@ object SendCoordinator {
                     check(!requireCoordinates || LocationBeacon.requested(appContext)) {
                         "Location sharing was turned off before sending."
                     }
-                    val result = RelayClient(url).publish(prepared, ReceiverStatus.session)
+                    val client = RelayClient.app(appContext)
+                    client.register(DeviceIdentity.displayName(appContext))
+                    val result = client.publish(prepared, ReceiverStatus.session, recipientIds)
                     store.recordAcceptance(prepared.id, result)
                     ReceiptCoordinator.track(appContext, prepared.id)
                 } catch (_: Exception) {

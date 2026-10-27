@@ -379,6 +379,9 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
     var showCustomTime by rememberSaveable { mutableStateOf(false) }
     var showReceivingOptions by rememberSaveable { mutableStateOf(false) }
     var showListeners by rememberSaveable { mutableStateOf(false) }
+    var showRecipientSelection by rememberSaveable { mutableStateOf(false) }
+    var pendingStartAt by rememberSaveable { mutableStateOf<Long?>(null) }
+    var pendingEndAt by rememberSaveable { mutableStateOf<Long?>(null) }
     var locationBeaconRequested by remember { mutableStateOf(LocationBeacon.requested(context)) }
     var locationBeaconActive by remember { mutableStateOf(LocationBeacon.active(context)) }
     val selectedActivity = ACTIVITY_OPTIONS.firstOrNull { it.id == selectedActivityId } ?: ACTIVITY_OPTIONS.first()
@@ -504,7 +507,8 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
         timeError = ActivityTime.selectionError(selectedActivity.timePolicy, draftStartAt, draftEndAt, pressedAt, coordinateMode)
         if (timeError != null) return
         val selectedTime = ActivityTime.resolve(draftStartAt, draftEndAt, pressedAt)
-        val live = draftStartAt == null
+        pendingStartAt = selectedTime.startAt
+        pendingEndAt = selectedTime.endAt
         if (coordinateMode) {
             if (locationActive) { timeError = "A location send is already pending. Cancel it before scheduling another."; return }
             if (!LocationCapture.permitted(context)) {
@@ -512,18 +516,12 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
                 return
             }
             if (!LocationCapture.enabled(context)) { timeError = "Turn on your phone's location, then tap kNupdate again."; return }
-            val at = selectedTime.startAt
-            if (!live && Build.VERSION.SDK_INT >= 31 && !context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()) {
+            if (draftStartAt != null && Build.VERSION.SDK_INT >= 31 && !context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()) {
                 timeError = "Allow Alarms & reminders, then return and tap kNupdate again. Or use Live to send immediately."
                 try { context.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${context.packageName}"))) }
                 catch (_: Exception) { timeError = "Enable Alarms & reminders in Android app settings, or use Live." }
                 return
             }
-            val update = ActivityRecord(title = selectedActivity.title, body = selectedBody.orEmpty(), startAt = at, endAt = null, status = "scheduled")
-            try {
-                if (LocationSendService.schedule(context, update)) { lastSentId = update.id; timeError = null }
-            } catch (_: Exception) { timeError = "Could not start location sharing. Keep the app open and check location permission." }
-            return
         }
         if (locationBeaconRequested) {
             if (!LocationCapture.permitted(context)) {
@@ -537,11 +535,25 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
                 return
             }
         }
+        showRecipientSelection = true
+    }
+
+    fun dispatchUpdate(recipientIds: List<String>) {
+        val startAt = pendingStartAt ?: return
         val update = ActivityRecord(title = selectedActivity.title, body = selectedBody.orEmpty(),
-            startAt = selectedTime.startAt, endAt = selectedTime.endAt)
+            startAt = startAt, endAt = if (coordinateMode) null else pendingEndAt,
+            status = if (coordinateMode) "scheduled" else "sending", recipientIds = recipientIds)
         lastSentId = update.id
         timeError = null
-        SendCoordinator.send(context, update, requireCoordinates = locationBeaconRequested)
+        showRecipientSelection = false
+        try {
+            if (coordinateMode) {
+                if (!LocationSendService.schedule(context, update)) timeError = "A location send is already pending."
+            } else SendCoordinator.send(context, update, recipientIds, requireCoordinates = locationBeaconRequested)
+        } catch (_: Exception) {
+            timeError = if (coordinateMode) "Could not start location sharing. Keep the app open and check location permission."
+                else "Could not start sending."
+        }
     }
 
     Column(modifier = Modifier.fillMaxSize().background(Paper).statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp)) {
@@ -627,6 +639,10 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
                 timeError = null; showCustomTime = false
             })
     }
+    if (showRecipientSelection) RecipientSelectionDialog(
+        onDismiss = { showRecipientSelection = false },
+        onConfirm = ::dispatchUpdate
+    )
     if (showListeners) ListenerDirectoryDialog { showListeners = false }
     if (showReceivingOptions) ReceivingOptionsDialog(onDismiss = { showReceivingOptions = false }, onConfirm = { name, share ->
         context.getSharedPreferences("knupdate_local", 0).edit()

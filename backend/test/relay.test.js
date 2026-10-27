@@ -260,3 +260,41 @@ test("a relay restart cannot recover payloads", async () => {
   await waiting;
   assert.equal(new Relay().records.size, 0);
 });
+
+test("paired device identities restrict delivery to the selected device", async () => {
+  const relay = new Relay({ pollMs: 5 });
+  const alice = { id: randomUUID(), token: randomUUID() };
+  const bob = { id: randomUUID(), token: randomUUID() };
+  const carol = { id: randomUUID(), token: randomUUID() };
+  relay.registerDevice(alice.id, alice.token, "Alice");
+  relay.registerDevice(bob.id, bob.token, "Bob");
+  relay.registerDevice(carol.id, carol.token, "Carol");
+  const invite = relay.createPairingInvite(alice.id, alice.token);
+  relay.acceptPairing(bob.id, bob.token, invite.code);
+  const aliceSession = randomUUID(), bobSession = randomUUID(), carolSession = randomUUID();
+  const bobPoll = relay.poll(bobSession, undefined, null, bob.id, bob.token);
+  const carolPoll = relay.poll(carolSession, undefined, null, carol.id, carol.token);
+  const message = activity();
+  const sent = relay.publish({ activity: message, recipientIds: [bob.id] }, aliceSession, randomUUID(), alice.id, alice.token);
+  assert.equal(sent.listeners, 1);
+  assert.equal((await bobPoll)[0].id, message.id);
+  assert.deepEqual(await carolPoll, []);
+  relay.acknowledge(bobSession, [message.id], bob.id, bob.token);
+  assert.deepEqual(relay.publicUpdates(), []);
+  assert.throws(() => relay.publish({ activity: activity(), recipientIds: [carol.id] }, null, null, alice.id, alice.token), { status: 403 });
+  relay.close(bobSession, bob.id, bob.token);
+  relay.close(carolSession, carol.id, carol.token);
+});
+
+test("pairing metadata survives a relay snapshot and device credentials are required", () => {
+  const relay = new Relay();
+  const alice = { id: randomUUID(), token: randomUUID() };
+  const bob = { id: randomUUID(), token: randomUUID() };
+  relay.registerDevice(alice.id, alice.token, "Alice");
+  relay.registerDevice(bob.id, bob.token, "Bob");
+  relay.acceptPairing(bob.id, bob.token, relay.createPairingInvite(alice.id, alice.token).code);
+  const restored = new Relay();
+  restored.restoreIdentity(relay.identitySnapshot());
+  assert.deepEqual(restored.pairedDevices(alice.id, alice.token).peers.map(value => value.name), ["Bob"]);
+  assert.throws(() => restored.pairedDevices(alice.id, randomUUID()), { status: 401 });
+});
