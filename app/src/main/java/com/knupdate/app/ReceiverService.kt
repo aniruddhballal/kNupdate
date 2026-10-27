@@ -111,7 +111,7 @@ class ReceiverService : Service() {
         if (started) return START_NOT_STICKY
         val url = RelaySettings.url()
         if (url.isBlank()) { stopSelf(); return START_NOT_STICKY }
-        client = RelayClient(url)
+        client = RelayClient.app(this)
         val run = ReceiverStatus.begin()
         runId = run
         val notification = serviceNotification("Connecting to relay")
@@ -120,6 +120,7 @@ class ReceiverService : Service() {
         started = true
         scope.launch {
             var backoff = 1_000L
+            var registered = false
             val sharedName = ListenerNames.sharedName(this@ReceiverService)
             val store = ActivityStore.get(this@ReceiverService)
             try {
@@ -130,8 +131,12 @@ class ReceiverService : Service() {
                         continue
                     }
                     try {
+                        if (!registered) {
+                            client.register(DeviceIdentity.displayName(this@ReceiverService))
+                            registered = true
+                        }
                         val session = ReceiverStatus.session ?: break
-                        setStatus("Listening for public kNupdates")
+                        setStatus("Listening for kNupdates")
                         if (!ReceiverStatus.isCurrent(run)) break
                         val updates = client.poll(session, sharedName)
                         if (!ReceiverStatus.isCurrent(run) || session != ReceiverStatus.session) continue
@@ -150,6 +155,7 @@ class ReceiverService : Service() {
                         backoff = 1_000
                     } catch (cancelled: CancellationException) { throw cancelled }
                     catch (error: Exception) {
+                        registered = false
                         setStatus(if (error is RelayAccessException) "Relay hosting requires browser verification. Check Relay settings."
                             else "Relay unavailable - retrying")
                         delay(backoff)
@@ -228,7 +234,7 @@ class ReceiverService : Service() {
             val url = RelaySettings.url()
             context.stopService(Intent(context, ReceiverService::class.java))
             if (session != null && url.isNotBlank()) cleanupScope.launch {
-                runCatching { RelayClient(url).close(session) }
+                runCatching { RelayClient.app(context).close(session) }
             }
         }
 

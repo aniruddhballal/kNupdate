@@ -37,7 +37,9 @@ object SendCoordinator {
                     check(!requireCoordinates || LocationBeacon.requested(appContext)) {
                         "Location sharing was turned off before sending."
                     }
-                    val result = RelayClient(url).publish(prepared, ReceiverStatus.session)
+                    val client = RelayClient.app(appContext)
+                    client.register(DeviceIdentity.displayName(appContext))
+                    val result = client.publish(prepared, ReceiverStatus.session, prepared.deliveryMode, prepared.recipientIds)
                     store.recordAcceptance(prepared.id, result)
                     ReceiptCoordinator.track(appContext, prepared.id)
                 } catch (_: Exception) {

@@ -13,7 +13,6 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
-import java.net.URL
 import java.util.UUID
 
 /** Opt-in test against an otherwise unused local or deployed relay. */
@@ -30,16 +29,21 @@ class RelayRoundTripTest {
             val senderStore = ActivityStore(context, names[0])
             val firstStore = ActivityStore(context, names[1])
             val secondStore = ActivityStore(context, names[2])
+            val senderCredentials = DeviceCredentials(UUID.randomUUID().toString(), UUID.randomUUID().toString())
+            val firstCredentials = DeviceCredentials(UUID.randomUUID().toString(), UUID.randomUUID().toString())
+            val secondCredentials = DeviceCredentials(UUID.randomUUID().toString(), UUID.randomUUID().toString())
             val firstSession = UUID.randomUUID().toString()
             val secondSession = UUID.randomUUID().toString()
-            val sender = RelayClient(url!!)
-            val firstClient = RelayClient(url)
-            val secondClient = RelayClient(url)
-            fun pendingCount(): Int = URL("$url/v1/updates").openStream().bufferedReader().use {
-                JSONObject(it.readText()).getJSONArray("updates").length()
-            }
+            val sender = RelayClient(url!!, senderCredentials)
+            val firstClient = RelayClient(url, firstCredentials)
+            val secondClient = RelayClient(url, secondCredentials)
             try {
                 sender.health()
+                sender.register("Test sender")
+                firstClient.register("First listener")
+                secondClient.register("Second listener")
+                val invite = sender.invite().getString("code")
+                firstClient.acceptInvite(invite)
                 val firstPoll = async(Dispatchers.IO) { firstClient.poll(firstSession, "First listener") }
                 val secondPoll = async(Dispatchers.IO) { secondClient.poll(secondSession, "Second listener") }
                 delay(2_000)
@@ -47,12 +51,11 @@ class RelayRoundTripTest {
                     endAt = null, timeZone = "Asia/Calcutta",
                     coordinates = Coordinates(12.345678, -76.54321, 24.5, System.currentTimeMillis()))
                 assertTrue(senderStore.insert(record))
-                val result = sender.publish(record, null)
-                assertEquals(2, result.getInt("listeners"))
+                val result = sender.publish(record, null, listOf(firstCredentials.id))
+                assertEquals(1, result.getInt("listeners"))
                 senderStore.recordAcceptance(record.id, result)
-                assertEquals(listOf("First listener", "Second listener").toSet(), senderStore.records.value.single().recipients!!.map { it.name }.toSet())
+                assertEquals(listOf("First listener"), senderStore.records.value.single().recipients!!.map { it.name })
                 val first = ActivityRecord.fromWire(firstPoll.await().getJSONObject(0))
-                val second = ActivityRecord.fromWire(secondPoll.await().getJSONObject(0))
                 assertTrue(firstStore.insert(first))
                 firstStore.close()
                 val reopened = ActivityStore(context, names[1])
@@ -65,18 +68,10 @@ class RelayRoundTripTest {
                 val firstReport = sender.receipts(record.id, record.receiptKey!!, -1)
                 senderStore.applyReceiptReport(record.id, record.receiptKey, firstReport)
                 assertEquals(1, senderStore.records.value.single().recipients!!.count { it.confirmedAt != null })
-                assertEquals(1, pendingCount())
-                assertTrue(secondStore.insert(second))
-                assertEquals(record.coordinates, secondStore.records.value.single().coordinates)
-                secondClient.acknowledge(secondSession, listOf(second.id))
-                val finalReport = sender.receipts(record.id, record.receiptKey, firstReport.getInt("revision"))
-                senderStore.applyReceiptReport(record.id, record.receiptKey, finalReport)
-                assertEquals(2, senderStore.records.value.single().recipients!!.count { it.confirmedAt != null })
+                assertEquals(1, firstReport.getInt("revision"))
                 sender.forgetReceipts(record.id, record.receiptKey)
                 senderStore.finishReceiptTracking(record.id)
-                assertEquals(0, pendingCount())
                 assertEquals("sent", senderStore.records.value.single().status)
-                assertEquals("received", secondStore.records.value.single().status)
             } finally {
                 firstClient.cancelPoll()
                 secondClient.cancelPoll()

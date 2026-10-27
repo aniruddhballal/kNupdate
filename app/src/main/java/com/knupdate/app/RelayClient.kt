@@ -1,5 +1,6 @@
 package com.knupdate.app
 
+import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -32,13 +33,40 @@ object RelaySettings {
 
 }
 
-class RelayClient(private val baseUrl: String) {
+class RelayClient(private val baseUrl: String, private val credentials: DeviceCredentials? = null) {
     @Volatile private var pollConnection: HttpURLConnection? = null
 
-    suspend fun health() = request("GET", "/health").also {
-        require(it.optString("service") == "knupdate-relay" && it.optInt("protocol") == 1) { "This URL is not a kNupdate relay." }
+    companion object {
+        fun app(context: Context): RelayClient = RelayClient(RelaySettings.url(), DeviceIdentity.credentials(context))
     }
-    suspend fun publish(record: ActivityRecord, session: String?) = request("POST", "/v1/updates", record.wireJson(), session, receiptKey = record.receiptKey)
+
+    suspend fun health() = request("GET", "/health").also {
+        require(it.optString("service") == "knupdate-relay" && it.optInt("protocol") == 2) { "This URL is not a private kNupdate relay." }
+    }
+    suspend fun register(name: String): JSONObject = request("POST", "/v1/devices/register",
+        JSONObject().put("deviceId", credentials?.id).put("deviceToken", credentials?.token).put("name", name), authenticated = false)
+    suspend fun invite() = request("POST", "/v1/pairing/invite")
+    suspend fun acceptInvite(code: String) = request("POST", "/v1/pairing/accept", JSONObject().put("code", code))
+    suspend fun peers(): List<PairedDevice> {
+        val rows = request("GET", "/v1/peers").getJSONArray("peers")
+        require(rows.length() <= 100)
+        return (0 until rows.length()).map { index ->
+            val value = rows.getJSONObject(index)
+            PairedDevice(value.getString("id"), if (value.isNull("name")) null else value.getString("name"),
+                if (value.isNull("createdAt")) null else value.getLong("createdAt"))
+        }
+    }
+    suspend fun unpair(id: String) = request("DELETE", "/v1/peers/$id")
+    suspend fun publish(record: ActivityRecord, session: String?, deliveryMode: String = record.deliveryMode,
+        recipientIds: List<String>? = record.recipientIds): JSONObject {
+        require(deliveryMode == DeliveryMode.LEAF.wireValue || deliveryMode == DeliveryMode.TREE.wireValue)
+        val body = JSONObject().put("activity", record.wireJson()).put("mode", deliveryMode).also { json ->
+            if (deliveryMode == DeliveryMode.LEAF.wireValue) json.put("recipientIds", JSONArray(recipientIds ?: emptyList<String>()))
+        }
+        return request("POST", "/v1/updates", body, session, receiptKey = record.receiptKey)
+    }
+    suspend fun publish(record: ActivityRecord, session: String?, recipientIds: List<String>): JSONObject =
+        publish(record, session, DeliveryMode.LEAF.wireValue, recipientIds)
     suspend fun poll(session: String, name: String? = null): JSONArray = request("GET", "/v1/poll", session = session, polling = true, listenerName = name).getJSONArray("updates")
     suspend fun listeners(session: String?) = request("GET", "/v1/listeners", session = session)
     suspend fun receipts(id: String, key: String, revision: Int) = request("GET", "/v1/receipts/$id?after=$revision", receiptKey = key, longPolling = true)
@@ -49,7 +77,7 @@ class RelayClient(private val baseUrl: String) {
 
     private suspend fun request(method: String, path: String, body: JSONObject? = null,
         session: String? = null, polling: Boolean = false, listenerName: String? = null,
-        receiptKey: String? = null, longPolling: Boolean = false): JSONObject = withContext(Dispatchers.IO) {
+        receiptKey: String? = null, longPolling: Boolean = false, authenticated: Boolean = true): JSONObject = withContext(Dispatchers.IO) {
         val connection = URL(baseUrl + path).openConnection() as HttpURLConnection
         if (polling) pollConnection = connection
         try {
@@ -59,6 +87,10 @@ class RelayClient(private val baseUrl: String) {
             connection.instanceFollowRedirects = false
             connection.setRequestProperty("Accept", "application/json")
             connection.setRequestProperty("Cache-Control", "no-store")
+            if (credentials != null && authenticated) {
+                connection.setRequestProperty("X-Device-Id", credentials.id)
+                connection.setRequestProperty("X-Device-Token", credentials.token)
+            }
             if (session != null) connection.setRequestProperty("X-Relay-Session", session)
             if (receiptKey != null) connection.setRequestProperty("X-Receipt-Key", receiptKey)
             if (listenerName != null) {

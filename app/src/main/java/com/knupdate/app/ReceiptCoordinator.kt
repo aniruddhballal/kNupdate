@@ -26,7 +26,8 @@ object ReceiptCoordinator {
                 val record = store.records.value.firstOrNull { it.id == id } ?: return@launch
                 val key = record.receiptKey ?: return@launch
                 val until = record.receiptExpiresAt ?: return@launch
-                val client = RelayClient(RelaySettings.url())
+                val client = RelayClient.app(app)
+                client.register(DeviceIdentity.displayName(app))
                 var revision = -1
                 while (System.currentTimeMillis() < until) {
                     try {
