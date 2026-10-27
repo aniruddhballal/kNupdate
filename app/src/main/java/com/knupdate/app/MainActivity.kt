@@ -686,7 +686,10 @@ private fun CoordinateMap(fix: Coordinates) {
     var fullscreen by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    val mapView = remember(context) {
+    // osmdroid destroys part of a MapView when it is detached. A fullscreen
+    // dialog changes the native view hierarchy, so keep a separate instance
+    // for each presentation state instead of reattaching a destroyed view.
+    val mapView = remember(context, fullscreen) {
         Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", 0))
         Configuration.getInstance().userAgentValue = "kNupdate/${BuildConfig.VERSION_NAME}"
         MapView(context).apply {
