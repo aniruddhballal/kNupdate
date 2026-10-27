@@ -32,6 +32,22 @@ class ActivityStoreTest {
         endAt = System.currentTimeMillis() - 1, timeZone = "Asia/Calcutta", direction = direction,
         status = if (direction == "received") "received" else "sending")
 
+    @Test fun olderLocationRangesRemainReadableWithoutRewritingTheirTimes() {
+        val older = record().copy(title = "Current location", body = "Home")
+        val policy = ACTIVITY_OPTIONS.single { it.id == "location" }.timePolicy
+        assertNotNull(ActivityTime.selectionError(policy, older.startAt, older.endAt, System.currentTimeMillis()))
+        // Older phones and existing history remain readable even though new drafts reject this shape.
+        val received = ActivityRecord.fromWire(older.wireJson())
+        assertTrue(store.insert(received))
+        store.close()
+        store = ActivityStore(context)
+        store.load()
+        val recovered = store.records.value.single()
+        assertEquals(older.startAt, recovered.startAt)
+        assertEquals(older.endAt, recovered.endAt)
+        assertEquals("received", recovered.direction)
+    }
+
     @Test fun coordinatesPersistInSenderAndReceiverWithoutChangingOtherActivities() {
         val fix = Coordinates(12.345678, -76.54321, 24.5, System.currentTimeMillis())
         val scheduled = record().copy(endAt = null, status = "scheduled")

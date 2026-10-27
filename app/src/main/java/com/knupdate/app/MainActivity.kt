@@ -336,7 +336,7 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
     var selectedBody by rememberSaveable { mutableStateOf(ACTIVITY_OPTIONS.first().bodies.first()) }
     var customStartAt by rememberSaveable { mutableStateOf<Long?>(null) }
     var customEndAt by rememberSaveable { mutableStateOf<Long?>(null) }
-    var isRange by rememberSaveable { mutableStateOf(ACTIVITY_OPTIONS.first().isRange) }
+    var isRange by rememberSaveable { mutableStateOf(ACTIVITY_OPTIONS.first().defaultIsRange) }
     var timeError by rememberSaveable { mutableStateOf<String?>(null) }
     var updateButtonSuccess by rememberSaveable { mutableStateOf(false) }
     var lastSentId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -352,7 +352,7 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
         val activity = ACTIVITY_OPTIONS.first { it.id == id }
         selectedActivityId = id
         selectedBody = activity.bodies.first()
-        isRange = activity.isRange
+        isRange = activity.defaultIsRange
         customStartAt = null
         customEndAt = null
         timeError = null
@@ -405,6 +405,9 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
         val pressedAt = ActivityTime.now()
         if (!ready || sending) return
         if (RelaySettings.url().isBlank()) { receiverError = "Unavailable"; return }
+        if (selectedBody !in selectedActivity.bodies) return
+        timeError = ActivityTime.selectionError(selectedActivity.timePolicy, customStartAt, customEndAt, pressedAt, coordinateMode)
+        if (timeError != null) return
         val selectedTime = ActivityTime.resolve(customStartAt, customEndAt, pressedAt)
         val live = customStartAt == null
         if (coordinateMode) {
@@ -415,7 +418,6 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
             }
             if (!LocationCapture.enabled(context)) { timeError = "Turn on your phone's location, then tap kNupdate again."; return }
             val at = selectedTime.startAt
-            if (!live && at <= pressedAt) { timeError = "Choose a future time or use Live."; return }
             if (!live && Build.VERSION.SDK_INT >= 31 && !context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()) {
                 timeError = "Allow Alarms & reminders, then return and tap kNupdate again. Or use Live to send immediately."
                 try { context.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${context.packageName}"))) }
@@ -428,9 +430,6 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
             } catch (_: Exception) { timeError = "Could not start location sharing. Keep the app open and check location permission." }
             return
         }
-        if (selectedBody !in selectedActivity.bodies) return
-        timeError = ActivityTime.error(selectedTime.startAt, selectedTime.endAt, pressedAt)
-        if (timeError != null) return
         val update = ActivityRecord(title = selectedActivity.title, body = selectedBody,
             startAt = selectedTime.startAt, endAt = selectedTime.endAt)
         lastSentId = update.id
@@ -504,7 +503,7 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
         }
     }
     if (showCustomTime) {
-        CustomTimeDialog(customStartAt, customEndAt, isRange, coordinateMode,
+        CustomTimeDialog(customStartAt, customEndAt, isRange, selectedActivity.timePolicy, coordinateMode,
             onDismiss = { showCustomTime = false },
             onConfirm = { start, end, range ->
                 customStartAt = start; customEndAt = end; isRange = range
@@ -552,13 +551,17 @@ private fun CustomTimeDialog(
     initialStart: Long?,
     initialEnd: Long?,
     initialIsRange: Boolean,
+    timePolicy: ActivityTimePolicy,
     coordinates: Boolean,
     onDismiss: () -> Unit,
     onConfirm: (Long, Long?, Boolean) -> Unit
 ) {
     var start by rememberSaveable { mutableStateOf(initialStart) }
     var end by rememberSaveable { mutableStateOf(initialEnd) }
-    var range by rememberSaveable { mutableStateOf(initialIsRange && !coordinates) }
+    var preferredRange by rememberSaveable { mutableStateOf(initialIsRange) }
+    val policy = if (coordinates) ActivityTimePolicy.AT_ONLY else timePolicy
+    // Constrain even restored drafts from a version that allowed every mode.
+    val range = policy.rangeSelection(preferredRange)
     var editingStart by rememberSaveable { mutableStateOf<Boolean?>(null) }
     var pickerReference by rememberSaveable { mutableStateOf<Long?>(null) }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
@@ -574,7 +577,8 @@ private fun CustomTimeDialog(
             Column(Modifier.heightIn(max = 600.dp).verticalScroll(rememberScrollState()).padding(18.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 SectionLabel("CUSTOM TIME")
-                if (!coordinates) TimeModeSelector(range) { range = it; error = null }
+                if (policy == ActivityTimePolicy.BOTH) TimeModeSelector(range) { preferredRange = it; error = null }
+                else Text(if (policy == ActivityTimePolicy.AT_ONLY) "At only" else "From–to only", color = Muted, fontSize = 12.sp)
                 TimestampField(if (range) "From" else "At", start, onEdit = { edit(true) })
                 if (range) TimestampField("To", end, onEdit = { edit(false) })
                 error?.let { Text(it, color = Color(0xFFB3261E), fontSize = 13.sp) }
@@ -584,9 +588,7 @@ private fun CustomTimeDialog(
                         onClick = {
                             val selectedStart = start ?: return@BlackButton
                             val selectedEnd = if (range) end else null
-                            error = if (coordinates) {
-                                if (selectedStart <= ActivityTime.now()) "Choose a future time or use Live." else null
-                            } else ActivityTime.error(selectedStart, selectedEnd, ActivityTime.now())
+                            error = ActivityTime.selectionError(policy, selectedStart, selectedEnd, ActivityTime.now(), coordinates)
                             if (error == null) onConfirm(selectedStart, selectedEnd, range)
                         }, modifier = Modifier.weight(1f))
                 }

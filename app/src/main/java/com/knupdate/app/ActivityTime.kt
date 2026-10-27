@@ -17,6 +17,20 @@ internal object ActivityTime {
     fun resolve(customStart: Long?, customEnd: Long?, pressedAt: Long): SelectedActivityTime =
         if (customStart == null) SelectedActivityTime(pressedAt, null) else SelectedActivityTime(customStart, customEnd)
 
+    /** Used by both the editor and the final send guard, including restored older drafts. */
+    fun selectionError(policy: ActivityTimePolicy, start: Long?, end: Long?, now: Long,
+        coordinates: Boolean = false): String? {
+        if (start == null) return if (end == null) null else "Choose a start time or use Live."
+        val effectivePolicy = if (coordinates) ActivityTimePolicy.AT_ONLY else policy
+        return when {
+            !effectivePolicy.allows(end != null) -> if (effectivePolicy == ActivityTimePolicy.AT_ONLY)
+                "This activity uses At time only." else "Choose both From and To times."
+            coordinates && start <= now -> "Choose a future time or use Live."
+            coordinates -> null
+            else -> error(start, end, now)
+        }
+    }
+
     fun manual(date: LocalDate, minutes: Int, zone: ZoneId): Long {
         require(minutes in 0..1439)
         return date.atTime(minutes / 60, minutes % 60).atZone(zone).toInstant().toEpochMilli()

@@ -5,6 +5,7 @@
 - Local display name and structured activity composer, including detail choices and Run / 5k.
 - Real timestamps and local sent/received SQLite histories.
 - Ticking Live time by default, resolved at the send-button press, with optional custom timestamp/range editing.
+- Audited custom-time capabilities for all 100 activities, with At-only events/snapshots and both-mode ongoing activities; shared editor/send validation.
 - Migration of the previous local history without uploading it.
 - Public plaintext relay using Cloudflare Workers and one Durable Object.
 - Activity payloads held in memory only; no cloud database or file history.

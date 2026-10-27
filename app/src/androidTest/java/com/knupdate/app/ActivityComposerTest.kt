@@ -96,7 +96,8 @@ class ActivityComposerTest {
         selectGroup("Travel")
         scrollTo(hasText("Arrived") and hasClickAction()).performClick()
         scrollTo(hasContentDescription("Set custom time")).performClick()
-        compose.onNodeWithText("At").assertIsSelected()
+        compose.onNodeWithText("At only").assertExists()
+        compose.onNodeWithText("From–to").assertDoesNotExist()
         compose.onNodeWithContentDescription("To selected time").assertDoesNotExist()
         compose.onNodeWithText("CANCEL").performClick()
     }
@@ -136,7 +137,40 @@ class ActivityComposerTest {
         scrollTo(hasText("Medicine") and hasClickAction()).performClick()
         scrollTo(hasContentDescription("Live current time")).assertExists()
         scrollTo(hasContentDescription("Set custom time")).performClick()
-        compose.onNodeWithText("At").assertIsSelected()
+        compose.onNodeWithText("At only").assertExists()
         compose.onNodeWithText("CANCEL").performClick()
+    }
+
+    @Test fun allEightMomentActivitiesOfferOnlyAtInsideCustomAndStillDefaultToLive() {
+        val moments = listOf("Everyday" to "Location", "Everyday" to "Wake up",
+            "Travel" to "Arrived", "Travel" to "Departed", "Errands" to "Collect", "Errands" to "Delivery",
+            "Wellbeing" to "Medicine", "Wellbeing" to "Check-in")
+        moments.forEach { (group, activity) ->
+            selectGroup(group)
+            scrollTo(hasText(activity) and hasClickAction()).performClick()
+            scrollTo(hasContentDescription("Live current time")).assertExists()
+            scrollTo(hasContentDescription("Set custom time")).performClick()
+            compose.onNodeWithText("At only").assertExists()
+            compose.onNodeWithContentDescription("At selected time").assertExists()
+            compose.onNodeWithText("From–to").assertDoesNotExist()
+            compose.onNodeWithContentDescription("From selected time").assertDoesNotExist()
+            compose.onNodeWithContentDescription("To selected time").assertDoesNotExist()
+            compose.onNodeWithText("USE TIME").assertIsNotEnabled()
+            compose.onNodeWithText("CANCEL").performClick()
+        }
+    }
+
+    @Test fun drinkingDefaultsToAtButSupportsACustomCoffeeInterval() {
+        selectGroup("Everyday")
+        scrollTo(hasText("Drink") and hasClickAction()).performClick()
+        scrollTo(hasText("Coffee") and hasClickAction()).performClick()
+        scrollTo(hasContentDescription("Set custom time")).performClick()
+        compose.onNodeWithText("At").assertIsSelected()
+        compose.onNodeWithText("From–to").performClick()
+        compose.onNodeWithContentDescription("From selected time").assertExists()
+        compose.onNodeWithContentDescription("To selected time").assertExists()
+        compose.onNodeWithText("USE TIME").assertIsNotEnabled()
+        compose.onNodeWithText("CANCEL").performClick()
+        scrollTo(hasContentDescription("Live current time")).assertExists()
     }
 }

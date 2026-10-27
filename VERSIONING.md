@@ -43,6 +43,8 @@ The activity catalog/grid and exact-time controls were first built as **1.2.0 (c
 
 **1.3.4 (code 16)** corrects stale Now timestamps with a ticking Live default that captures time only when kNupdate is pressed. Custom timestamps and ranges are optional, and Live clears them. No relay deployment or wire-schema change is required.
 
+**1.3.5 (code 17)** enforces audited custom-time policies across all 100 activities: eight moment/snapshot activities allow At only, and 92 allow both modes. Drink keeps At as its custom default while allowing a longer interval. Live and existing history are preserved. The per-activity rationale is in `ACTIVITY_TIME_AUDIT.md`; no relay deployment is needed.
+
 Every normal app APK/AAB build reserves the next patch version and increments versionCode once per Gradle invocation. Debug, preview and release variants in the same invocation share that reservation. This includes full `build`, `assemble`, `bundle`, `package` and `install` artifact tasks, including Android Studio's normal `:app:assembleDebug` invocation. Use complete task names rather than abbreviations.
 
 ```powershell

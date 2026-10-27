@@ -10,6 +10,43 @@ import org.junit.Test
 class ActivityTimeTest {
     private val zone = ZoneId.of("Asia/Kolkata")
 
+    @Test fun finalSelectionGuardEnforcesEveryCatalogPolicyBeforeSending() {
+        ACTIVITY_OPTIONS.forEach { activity ->
+            assertNull(activity.id, ActivityTime.selectionError(activity.timePolicy, null, null, 300))
+            assertNull(activity.id, ActivityTime.selectionError(activity.timePolicy, 100, null, 300))
+            val error = ActivityTime.selectionError(activity.timePolicy, 100, 200, 300)
+            if (activity.timePolicy == ActivityTimePolicy.AT_ONLY) assertEquals(activity.id, "This activity uses At time only.", error)
+            else assertNull(activity.id, error)
+        }
+    }
+
+    @Test fun staleOrPartialDraftsCannotBypassPolicyByTurningIntoLive() {
+        assertEquals("This activity uses At time only.", ActivityTime.selectionError(ActivityTimePolicy.AT_ONLY, 100, 200, 300))
+        for (policy in ActivityTimePolicy.entries) {
+            assertEquals("Choose a start time or use Live.", ActivityTime.selectionError(policy, null, 200, 300))
+        }
+        assertEquals("Choose both From and To times.", ActivityTime.selectionError(ActivityTimePolicy.RANGE_ONLY, 100, null, 300))
+        assertNull(ActivityTime.selectionError(ActivityTimePolicy.RANGE_ONLY, 100, 200, 300))
+        // A range-only custom policy must still allow the universal live as-of report.
+        assertNull(ActivityTime.selectionError(ActivityTimePolicy.RANGE_ONLY, null, null, 300))
+        assertEquals(SelectedActivityTime(300, null), ActivityTime.resolve(null, null, 300))
+    }
+
+    @Test fun timePoliciesRetainRangeOrderingAndPastTimeValidation() {
+        assertEquals("Choose a past time.", ActivityTime.selectionError(ActivityTimePolicy.BOTH, 400, null, 300))
+        assertEquals("Choose a past time.", ActivityTime.selectionError(ActivityTimePolicy.BOTH, 100, 400, 300))
+        assertEquals("End must be after start.", ActivityTime.selectionError(ActivityTimePolicy.BOTH, 200, 100, 300))
+        assertEquals("End must be after start.", ActivityTime.selectionError(ActivityTimePolicy.RANGE_ONLY, 100, 100, 300))
+    }
+
+    @Test fun coordinateSnapshotsOverrideRangeChoicesAndOnlyScheduleFutureInstants() {
+        assertNull(ActivityTime.selectionError(ActivityTimePolicy.BOTH, 400, null, 300, coordinates = true))
+        assertNull(ActivityTime.selectionError(ActivityTimePolicy.AT_ONLY, null, null, 300, coordinates = true))
+        assertEquals("This activity uses At time only.", ActivityTime.selectionError(ActivityTimePolicy.BOTH, 400, 500, 300, coordinates = true))
+        assertEquals("Choose a future time or use Live.", ActivityTime.selectionError(ActivityTimePolicy.AT_ONLY, 100, null, 300, coordinates = true))
+        assertEquals("Choose a future time or use Live.", ActivityTime.selectionError(ActivityTimePolicy.AT_ONLY, 300, null, 300, coordinates = true))
+    }
+
     @Test fun liveDraftUsesTheButtonPressTimeEvenAfterWaitingAcrossMidnight() {
         val displayed = Instant.parse("2026-10-26T18:29:00.100Z").toEpochMilli()
         val pressedAt = Instant.parse("2026-10-26T18:31:34.567Z").toEpochMilli()
