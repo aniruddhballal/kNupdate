@@ -24,7 +24,7 @@
 - [x] Pass HTTP integration and Android client/SQLite round-trip tests against the claimed live endpoint.
 - [x] Verify installed backup flag and local receipt counts on an Android 15 phone without exporting its database.
 - [x] Verify a synthetic live background delivery, notification, local persistence, and deletion after the last of two listener acknowledgements using one phone and a temporary test listener.
-- [ ] Deploy the relay update that accepts optional coordinates.
+- [x] Deploy the coordinate relay update to the owner's `aniruddhballaldeeksha.workers.dev` endpoint (27 October 2026); verify live coordinate validation without publishing an update.
 - [ ] Verify physical-device location permission, fresh fixes, scheduled screen-off sending and cancellation.
 - Install the configured APK on at least two phones.
 - Verify notification permissions, screen-off receiving, internet toggling and OEM battery behavior.

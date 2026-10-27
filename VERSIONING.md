@@ -37,19 +37,21 @@ The activity catalog/grid and exact-time controls were first built as **1.2.0 (c
 
 **1.3.1 (code 13)** explicitly marks location hardware optional, so devices without location hardware remain eligible to install the app.
 
-**1.3.2 (code 14)** requires Alarms & reminders access for future snapshots and uses an exact idle-allowed alarm instead of an inexact fallback. This is the final coordinate-feature APK at `kNupdate.apk`.
+**1.3.2 (code 14)** requires Alarms & reminders access for future snapshots and uses an exact idle-allowed alarm instead of an inexact fallback. Its optimized APK was published as `kNupdate.apk`.
+
+**1.3.3 (code 15)** points the app to the owner's deployed `aniruddhballaldeeksha.workers.dev` relay. The previous `quiet-airport` relay still rejected coordinate payloads. Sender and listener phones need this updated APK; upgrading preserves local history.
 
 Every normal app APK/AAB build reserves the next patch version and increments versionCode once per Gradle invocation. Debug, preview and release variants in the same invocation share that reservation. This includes full `build`, `assemble`, `bundle`, `package` and `install` artifact tasks, including Android Studio's normal `:app:assembleDebug` invocation. Use complete task names rather than abbreviations.
 
 ```powershell
 # Next patch build (the default)
-.\gradlew.bat assembleDebug "-PrelayUrl=https://knupdate-relay.quiet-airport.workers.dev"
+.\gradlew.bat assembleDebug "-PrelayUrl=https://knupdate-relay.aniruddhballaldeeksha.workers.dev"
 
 # Next feature release; resets PATCH to zero
-.\gradlew.bat assembleDebug -PversionBump=minor "-PrelayUrl=https://knupdate-relay.quiet-airport.workers.dev"
+.\gradlew.bat assembleDebug -PversionBump=minor "-PrelayUrl=https://knupdate-relay.aniruddhballaldeeksha.workers.dev"
 
 # Next incompatible release; resets MINOR and PATCH to zero
-.\gradlew.bat assembleDebug -PversionBump=major "-PrelayUrl=https://knupdate-relay.quiet-airport.workers.dev"
+.\gradlew.bat assembleDebug -PversionBump=major "-PrelayUrl=https://knupdate-relay.aniruddhballaldeeksha.workers.dev"
 ```
 
 The build cannot infer the significance of a future change. The person making it chooses `minor` or `major`; omitted means `patch`. No future numbering reads Git history or commit messages.

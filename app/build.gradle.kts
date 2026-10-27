@@ -32,7 +32,7 @@ android {
         versionCode = appVersion.code
         versionName = appVersion.name
         val relayUrl = providers.gradleProperty("relayUrl").orElse(providers.environmentVariable("KNUPDATE_RELAY_URL"))
-            .orElse("https://knupdate-relay.quiet-airport.workers.dev").get()
+            .orElse("https://knupdate-relay.aniruddhballaldeeksha.workers.dev").get()
         buildConfigField("String", "RELAY_URL", "\"${relayUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

@@ -103,9 +103,11 @@ Wrangler prints an HTTPS URL such as `https://knupdate-relay.<your-subdomain>.wo
 
 Cloudflare also supports `npx wrangler deploy --temporary` for unauthenticated previews. These expire after 60 minutes unless the intended user completes the account claim. A preview is not permanent hosting. See [Cloudflare claim deployments](https://developers.cloudflare.com/workers/platform/claim-deployments/).
 
-The deployed endpoint is `https://knupdate-relay.quiet-airport.workers.dev`. The owner completed its Cloudflare account claim on 26 October 2026, and the provided APK uses this endpoint. The private claim token is not stored in this repository. Future deployments require authentication to the claimed account with `wrangler login`; the original temporary credentials do not grant permanent access.
+The current deployed endpoint is `https://knupdate-relay.aniruddhballaldeeksha.workers.dev`, returned by the owner's successful deployment on 27 October 2026. The provided APK uses this address. The previous `quiet-airport` endpoint is a separate, older deployment: live checks confirmed it still rejects the coordinates field. All sender and listener phones must use the updated APK to share this relay. Future deployments require authentication to the owner's Cloudflare account with `wrangler login`; temporary deployment credentials do not grant permanent access. No private claim token is stored in this repository.
 
-After the account claim, the live HTTP integration suite and the Android HTTP client/SQLite round-trip test passed against the deployed HTTPS endpoint. These checks cover two recipients, storage before acknowledgement, duplicate suppression after reopening, deletion after the final acknowledgement, late-listener exclusion, and the 30-second expiry. The round-trip test runs under Robolectric on the desktop; physical-phone notifications, screen-off receiving, and battery policies still require device acceptance testing. The app reports hosting browser challenges (`cf-mitigated: challenge`, HTTP 403) if they occur.
+Live validation on 27 October confirmed that the current endpoint recognizes valid coordinate fields and rejects invalid latitude values. Deliberately invalid test sessions stopped these probes before publication, so no synthetic update was broadcast to phones. This is a schema check, not a physical-device location or delivery acceptance test.
+
+After the original account claim on 26 October, the live HTTP integration suite and the Android HTTP client/SQLite round-trip test passed against the previous `quiet-airport` HTTPS endpoint. These checks cover two recipients, storage before acknowledgement, duplicate suppression after reopening, deletion after the final acknowledgement, late-listener exclusion, and the 30-second expiry. The round-trip test runs under Robolectric on the desktop; physical-phone notifications, screen-off receiving, and battery policies still require device acceptance testing. The app reports hosting browser challenges (`cf-mitigated: challenge`, HTTP 403) if they occur.
 
 ## Build and use the Android app
 
@@ -210,7 +212,7 @@ On 26 October 2026, an ADB-connected Android 15 phone running the committed APK 
 `DevicePrivacyTest` provides a read-only audit of an installed app's backup flag and local SQLite receipt counts. It reports aggregate counts without exporting the database, display name, or activity rows. Android instrumentation restarts the app process, so run it outside an active receiving test and restart receiving afterwards if needed:
 
 ```powershell
-.\gradlew.bat assembleDebugAndroidTest "-PrelayUrl=https://knupdate-relay.quiet-airport.workers.dev"
+.\gradlew.bat assembleDebugAndroidTest "-PrelayUrl=https://knupdate-relay.aniruddhballaldeeksha.workers.dev"
 adb install -r -t app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 adb shell am instrument -w -r -e class com.knupdate.app.DevicePrivacyTest com.knupdate.app.test/androidx.test.runner.AndroidJUnitRunner
 adb uninstall com.knupdate.app.test
