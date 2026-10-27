@@ -148,6 +148,18 @@ class ActivityStoreTest {
         assertFalse(record().wireJson().has("coordinates"))
     }
 
+    @Test fun senderNameFromRelayIsStoredForInboxAndNeverAddedToOutgoingWire() {
+        val wire = JSONObject(record(direction = "received").wireJson().toString()).put("senderName", "Alice")
+        val received = ActivityRecord.fromWire(wire)
+        assertEquals("Alice", received.senderName)
+        assertFalse(received.wireJson().has("senderName"))
+        assertTrue(store.insert(received))
+        store.close()
+        store = ActivityStore(context)
+        store.load()
+        assertEquals("Alice", store.records.value.single().senderName)
+    }
+
     @Test fun interruptedLocationSchedulesAreNotSentAfterReopening() {
         store.insert(record().copy(status = "scheduled"))
         store.insert(record().copy(status = "locating"))

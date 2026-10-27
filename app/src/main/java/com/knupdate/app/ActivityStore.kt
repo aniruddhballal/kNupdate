@@ -26,6 +26,7 @@ data class ActivityRecord(
     val legacy: Boolean = false,
     val coordinates: Coordinates? = null,
     val deliveryMode: String = DeliveryMode.LEAF.wireValue,
+    val senderName: String? = null,
     val recipients: List<ListenerReceipt>? = null,
     val recipientIds: List<String>? = null,
     val receiptKey: String? = if (direction == "sent") UUID.randomUUID().toString() else null,
@@ -60,12 +61,15 @@ data class ActivityRecord(
             val coordinates = if (json.has("coordinates")) Coordinates.fromJson(json.getJSONObject("coordinates")) else null
             require(coordinates == null || (coordinates.capturedAt >= start &&
                 coordinates.capturedAt <= System.currentTimeMillis() + 60_000))
-            return ActivityRecord(id, title, body, start, end, zone, direction = "received", status = "received", coordinates = coordinates)
+            val senderName = if (!json.has("senderName") || json.isNull("senderName")) null
+                else json.getString("senderName").also { require(ListenerNames.valid(it)) }
+            return ActivityRecord(id, title, body, start, end, zone, direction = "received", status = "received",
+                coordinates = coordinates, senderName = senderName)
         }
     }
 }
 
-class ActivityStore internal constructor(context: Context, databaseName: String = "activities.db") : SQLiteOpenHelper(context, databaseName, null, 5) {
+class ActivityStore internal constructor(context: Context, databaseName: String = "activities.db") : SQLiteOpenHelper(context, databaseName, null, 6) {
     private val preferences = context.getSharedPreferences("knupdate_local", Context.MODE_PRIVATE)
     private val mutableRecords = MutableStateFlow<List<ActivityRecord>>(emptyList())
     val records = mutableRecords.asStateFlow()
@@ -77,7 +81,7 @@ class ActivityStore internal constructor(context: Context, databaseName: String 
             start_at INTEGER NOT NULL, end_at INTEGER, time_zone TEXT NOT NULL,
             created_at INTEGER NOT NULL, direction TEXT NOT NULL, status TEXT NOT NULL,
             listeners INTEGER, legacy INTEGER NOT NULL DEFAULT 0, coordinates TEXT,
-            delivery_mode TEXT NOT NULL DEFAULT 'leaf', recipients TEXT, recipient_ids TEXT, receipt_key TEXT, receipt_expires_at INTEGER)""")
+            delivery_mode TEXT NOT NULL DEFAULT 'leaf', sender_name TEXT, recipients TEXT, recipient_ids TEXT, receipt_key TEXT, receipt_expires_at INTEGER)""")
         db.execSQL("CREATE INDEX activity_order ON activities(created_at DESC)")
     }
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -89,6 +93,7 @@ class ActivityStore internal constructor(context: Context, databaseName: String 
         }
         if (oldVersion < 4) db.execSQL("ALTER TABLE activities ADD COLUMN recipient_ids TEXT")
         if (oldVersion < 5) db.execSQL("ALTER TABLE activities ADD COLUMN delivery_mode TEXT NOT NULL DEFAULT 'leaf'")
+        if (oldVersion < 6) db.execSQL("ALTER TABLE activities ADD COLUMN sender_name TEXT")
     }
 
     @Synchronized fun load() {
@@ -167,6 +172,7 @@ class ActivityStore internal constructor(context: Context, databaseName: String 
         put("listeners", record.listeners); put("legacy", if (record.legacy) 1 else 0)
         put("coordinates", record.coordinates?.json()?.toString())
         put("delivery_mode", record.deliveryMode)
+        put("sender_name", record.senderName)
         put("recipients", record.recipients?.let(ListenerReceipt::json))
         put("recipient_ids", record.recipientIds?.let { JSONArray(it).toString() })
         put("receipt_key", record.receiptKey); put("receipt_expires_at", record.receiptExpiresAt)
@@ -176,6 +182,7 @@ class ActivityStore internal constructor(context: Context, databaseName: String 
         mutableRecords.value = readableDatabase.rawQuery("SELECT * FROM activities ORDER BY created_at DESC, rowid DESC", null).use { cursor ->
             val coordinatesColumn = cursor.getColumnIndexOrThrow("coordinates")
             val deliveryModeColumn = cursor.getColumnIndexOrThrow("delivery_mode")
+            val senderNameColumn = cursor.getColumnIndexOrThrow("sender_name")
             val recipientsColumn = cursor.getColumnIndexOrThrow("recipients")
             val recipientIdsColumn = cursor.getColumnIndexOrThrow("recipient_ids")
             val receiptKeyColumn = cursor.getColumnIndexOrThrow("receipt_key")
@@ -189,6 +196,7 @@ class ActivityStore internal constructor(context: Context, databaseName: String 
                         status = cursor.getString(8), listeners = if (cursor.isNull(9)) null else cursor.getInt(9), legacy = cursor.getInt(10) == 1,
                         coordinates = if (cursor.isNull(coordinatesColumn)) null else Coordinates.fromJson(JSONObject(cursor.getString(coordinatesColumn))),
                         deliveryMode = cursor.getString(deliveryModeColumn) ?: DeliveryMode.LEAF.wireValue,
+                        senderName = if (cursor.isNull(senderNameColumn)) null else cursor.getString(senderNameColumn),
                         recipients = if (cursor.isNull(recipientsColumn)) null else ListenerReceipt.parse(JSONArray(cursor.getString(recipientsColumn))),
                         recipientIds = if (cursor.isNull(recipientIdsColumn)) null else JSONArray(cursor.getString(recipientIdsColumn)).let { array ->
                             (0 until array.length()).map { index -> UUID.fromString(array.getString(index)).toString() }

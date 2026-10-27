@@ -252,7 +252,8 @@ export class Relay {
     this.prune();
     return [...this.records.values()]
       .filter(record => record.pending.includes(session))
-      .map(record => ({ ...record.activity, expiresAt: record.expiresAt }));
+      .map(record => ({ ...record.activity, expiresAt: record.expiresAt,
+        ...(record.senderName ? { senderName: record.senderName } : {}) }));
   }
 
   assertSessionOwner(session, deviceId) {
@@ -346,7 +347,7 @@ export class Relay {
     const acceptance = { accepted: true, mode, listeners: eligible.length, recipients: snapshot,
       expiresAt: eligible.length ? expiresAt : null, receiptExpiresAt: receiptKey !== null && eligible.length ? expiresAt : null };
     if (eligible.length) {
-      const record = { activity, mode, pending: eligible, expiresAt, receiptKey,
+      const record = { activity, mode, senderName: sender?.device.name ?? null, pending: eligible, expiresAt, receiptKey,
         fingerprint: inputFingerprint, acceptance, receiptIds: new Map(eligible.map((session, index) => [session, snapshot[index].id])) };
       if (receiptKey !== null) this.receipts.set(activity.id, {
         key: receiptKey, senderDeviceId: sender?.id ?? null, expiresAt, revision: 0, recipients: structuredClone(snapshot)

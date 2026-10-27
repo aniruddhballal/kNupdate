@@ -707,6 +707,7 @@ private fun HistoryList(records: List<ActivityRecord>) {
         items(records, key = { it.id }) { record ->
             Column(modifier = Modifier.fillMaxWidth().border(1.dp, Rule).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(record.title, color = Ink, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                record.senderName?.let { Text("From $it", color = Muted, fontSize = 13.sp) }
                 if (record.body.isNotBlank()) Text(record.body, color = Ink, fontSize = 15.sp)
                 record.coordinates?.let { fix ->
                     Text(fix.text(), color = Ink, fontSize = 14.sp)
