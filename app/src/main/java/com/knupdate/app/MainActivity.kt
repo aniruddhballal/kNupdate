@@ -8,6 +8,7 @@ import android.net.Uri
 import android.provider.Settings
 import android.content.pm.PackageManager
 import android.os.Build
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -423,7 +424,17 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
         if (locationBeaconActive) {
             LocationBeacon.setRequested(context, false)
             refreshLocationBeacon()
-        } else enableLocationBeacon()
+            Toast.makeText(context, "Location beacon off", Toast.LENGTH_SHORT).show()
+        } else {
+            enableLocationBeacon()
+            val message = when {
+                locationBeaconActive -> "Location beacon on"
+                !LocationCapture.permitted(context) -> "Location beacon on — allow location access"
+                !LocationCapture.enabled(context) -> "Location beacon on — turn on phone location"
+                else -> "Location beacon on"
+            }
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        }
     }
 
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -531,7 +542,9 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
                     Icon(painterResource(R.drawable.ic_activity_meeting_people), null, tint = Ink, modifier = Modifier.size(24.dp))
                 }
                 LocationBeaconToggle(locationBeaconActive, ::changeLocationBeacon)
-                ReceivingToggle(receiver, ::changeReceiving)
+                // Keep the switch visually off while its options dialog is open. The thumb may
+                // move only after START has actually launched the receiver service.
+                ReceivingToggle(receiver.copy(running = receiver.running && !showReceivingOptions), ::changeReceiving)
             }
         }
         IconNavigation(selected = tab, onSelect = { tab = it })

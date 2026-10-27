@@ -49,6 +49,8 @@ The activity catalog/grid and exact-time controls were first built as **1.2.0 (c
 
 **1.5.0 (code 19)** adds the app-wide location beacon. The globe control persists the user's choice, follows Android permission and device-location state, and requires a fresh coordinate snapshot for every ordinary activity send when enabled, including timestamp ranges. The explicit Current location activity remains available as the opt-in exception when the beacon is off. The relay accepts validated coordinates on ranged activities, so this feature release requires the updated backend as well as the APK.
 
+**1.5.1 (code 20)** refines the location beacon icons with broadcast-tower artwork, adds concise on/off feedback, and keeps the receiving switch visually off until the Start receiving dialog is confirmed. No backend change is required.
+
 Every normal app APK/AAB build reserves the next patch version and increments versionCode once per Gradle invocation. Debug, preview and release variants in the same invocation share that reservation. This includes full `build`, `assemble`, `bundle`, `package` and `install` artifact tasks, including Android Studio's normal `:app:assembleDebug` invocation. Use complete task names rather than abbreviations.
 
 ```powershell
