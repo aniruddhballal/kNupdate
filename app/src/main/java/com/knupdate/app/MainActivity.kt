@@ -299,7 +299,7 @@ private fun IconNavigation(selected: String, onSelect: (String) -> Unit) {
         Triple("New", "New activity", R.drawable.ic_add),
         Triple("Sent", "Sent activities", R.drawable.ic_sent),
         Triple("Inbox", "Inbox", R.drawable.ic_postbox),
-        Triple("Pairing", "Pairing", R.drawable.ic_activity_meeting_people)
+        Triple("Pairing", "Pairing", R.drawable.ic_pairing)
     )
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceEvenly) {
