@@ -24,9 +24,12 @@ data class ActivityRecord(
     val status: String = "sending",
     val listeners: Int? = null,
     val legacy: Boolean = false,
-    val coordinates: Coordinates? = null
+    val coordinates: Coordinates? = null,
+    val recipients: List<ListenerReceipt>? = null,
+    val receiptKey: String? = if (direction == "sent") UUID.randomUUID().toString() else null,
+    val receiptExpiresAt: Long? = null
 ) {
-    // Explicit wire schema: display names and local metadata never leave the phone.
+    // Activity payloads exclude local recipient logs and private receipt keys.
     fun wireJson(): JSONObject = JSONObject()
         .put("id", id).put("title", title).put("body", body)
         .put("startAt", startAt).put("endAt", endAt ?: JSONObject.NULL).put("timeZone", timeZone)
@@ -60,7 +63,7 @@ data class ActivityRecord(
     }
 }
 
-class ActivityStore internal constructor(context: Context, databaseName: String = "activities.db") : SQLiteOpenHelper(context, databaseName, null, 2) {
+class ActivityStore internal constructor(context: Context, databaseName: String = "activities.db") : SQLiteOpenHelper(context, databaseName, null, 3) {
     private val preferences = context.getSharedPreferences("knupdate_local", Context.MODE_PRIVATE)
     private val mutableRecords = MutableStateFlow<List<ActivityRecord>>(emptyList())
     val records = mutableRecords.asStateFlow()
@@ -71,11 +74,17 @@ class ActivityStore internal constructor(context: Context, databaseName: String 
             id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL,
             start_at INTEGER NOT NULL, end_at INTEGER, time_zone TEXT NOT NULL,
             created_at INTEGER NOT NULL, direction TEXT NOT NULL, status TEXT NOT NULL,
-            listeners INTEGER, legacy INTEGER NOT NULL DEFAULT 0, coordinates TEXT)""")
+            listeners INTEGER, legacy INTEGER NOT NULL DEFAULT 0, coordinates TEXT,
+            recipients TEXT, receipt_key TEXT, receipt_expires_at INTEGER)""")
         db.execSQL("CREATE INDEX activity_order ON activities(created_at DESC)")
     }
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) db.execSQL("ALTER TABLE activities ADD COLUMN coordinates TEXT")
+        if (oldVersion < 3) {
+            db.execSQL("ALTER TABLE activities ADD COLUMN recipients TEXT")
+            db.execSQL("ALTER TABLE activities ADD COLUMN receipt_key TEXT")
+            db.execSQL("ALTER TABLE activities ADD COLUMN receipt_expires_at INTEGER")
+        }
     }
 
     @Synchronized fun load() {
@@ -114,12 +123,47 @@ class ActivityStore internal constructor(context: Context, databaseName: String 
         refresh()
     }
 
+    @Synchronized fun recordAcceptance(id: String, response: JSONObject) {
+        val count = response.getInt("listeners")
+        require(count in 0..100)
+        val recipients = if (response.has("recipients")) ListenerReceipt.parse(response.getJSONArray("recipients")) else null
+        require(recipients == null || recipients.size == count)
+        val expiry = if (response.isNull("receiptExpiresAt") || recipients == null || count == 0) null else response.getLong("receiptExpiresAt")
+        val values = ContentValues().apply {
+            put("status", "sent"); put("listeners", count)
+            put("recipients", recipients?.let(ListenerReceipt::json)); put("receipt_expires_at", expiry)
+            if (expiry == null) putNull("receipt_key")
+        }
+        writableDatabase.update("activities", values, "id = ?", arrayOf(id))
+        refresh()
+    }
+
+    @Synchronized fun applyReceiptReport(id: String, key: String, response: JSONObject) {
+        val record = records.value.firstOrNull { it.id == id && it.receiptKey == key } ?: return
+        val original = record.recipients ?: return
+        val updated = ListenerReceipt.parse(response.getJSONArray("recipients"))
+        require(updated.size == original.size && updated.associate { it.id to it.name } == original.associate { it.id to it.name })
+        val byId = updated.associateBy { it.id }
+        val merged = original.map { recipient -> recipient.copy(confirmedAt = recipient.confirmedAt ?: byId.getValue(recipient.id).confirmedAt) }
+        val values = ContentValues().apply { put("recipients", ListenerReceipt.json(merged)) }
+        writableDatabase.update("activities", values, "id = ?", arrayOf(id))
+        refresh()
+    }
+
+    @Synchronized fun finishReceiptTracking(id: String) {
+        val values = ContentValues().apply { putNull("receipt_key") }
+        writableDatabase.update("activities", values, "id = ?", arrayOf(id))
+        refresh()
+    }
+
     private fun values(record: ActivityRecord) = ContentValues().apply {
         put("id", record.id); put("title", record.title); put("body", record.body)
         put("start_at", record.startAt); put("end_at", record.endAt); put("time_zone", record.timeZone)
         put("created_at", record.createdAt); put("direction", record.direction); put("status", record.status)
         put("listeners", record.listeners); put("legacy", if (record.legacy) 1 else 0)
         put("coordinates", record.coordinates?.json()?.toString())
+        put("recipients", record.recipients?.let(ListenerReceipt::json))
+        put("receipt_key", record.receiptKey); put("receipt_expires_at", record.receiptExpiresAt)
     }
 
     private fun refresh() {
@@ -131,7 +175,10 @@ class ActivityStore internal constructor(context: Context, databaseName: String 
                         startAt = cursor.getLong(3), endAt = if (cursor.isNull(4)) null else cursor.getLong(4),
                         timeZone = cursor.getString(5), createdAt = cursor.getLong(6), direction = cursor.getString(7),
                         status = cursor.getString(8), listeners = if (cursor.isNull(9)) null else cursor.getInt(9), legacy = cursor.getInt(10) == 1,
-                        coordinates = if (cursor.isNull(11)) null else Coordinates.fromJson(JSONObject(cursor.getString(11)))
+                        coordinates = if (cursor.isNull(11)) null else Coordinates.fromJson(JSONObject(cursor.getString(11))),
+                        recipients = if (cursor.isNull(12)) null else ListenerReceipt.parse(JSONArray(cursor.getString(12))),
+                        receiptKey = if (cursor.isNull(13)) null else cursor.getString(13),
+                        receiptExpiresAt = if (cursor.isNull(14)) null else cursor.getLong(14)
                     ))
                 }
             }
@@ -151,7 +198,7 @@ class ActivityStore internal constructor(context: Context, databaseName: String 
                     id = "legacy-$index", title = item.getString("title"), body = item.getString("body"),
                     startAt = midnight + item.getInt("start") * 60_000L,
                     endAt = if (item.isNull("end")) null else midnight + item.getInt("end") * 60_000L,
-                    createdAt = midnight - index, status = "local", legacy = true
+                    createdAt = midnight - index, status = "local", legacy = true, receiptKey = null
                 )
                 db.insertWithOnConflict("activities", null, values(record), SQLiteDatabase.CONFLICT_IGNORE)
             }

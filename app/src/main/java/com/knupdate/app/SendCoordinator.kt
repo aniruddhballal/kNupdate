@@ -28,7 +28,8 @@ object SendCoordinator {
                 if (url.isBlank()) { store.updateStatus(record.id, "local"); return@launch }
                 try {
                     val result = RelayClient(url).publish(record, ReceiverStatus.session)
-                    store.updateStatus(record.id, "sent", result.getInt("listeners"))
+                    store.recordAcceptance(record.id, result)
+                    ReceiptCoordinator.track(appContext, record.id)
                 } catch (_: Exception) {
                     // A timeout could follow acceptance. Never queue or rebroadcast silently.
                     store.updateStatus(record.id, "uncertain")

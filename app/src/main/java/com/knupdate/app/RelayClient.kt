@@ -9,8 +9,10 @@ import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
+import java.util.Base64
 
 class RelayAccessException(message: String) : IOException(message)
+class RelayHttpException(val statusCode: Int) : IOException("Relay request failed (HTTP $statusCode).")
 
 object RelaySettings {
     fun url(): String = BuildConfig.RELAY_URL
@@ -36,24 +38,33 @@ class RelayClient(private val baseUrl: String) {
     suspend fun health() = request("GET", "/health").also {
         require(it.optString("service") == "knupdate-relay" && it.optInt("protocol") == 1) { "This URL is not a kNupdate relay." }
     }
-    suspend fun publish(record: ActivityRecord, session: String?) = request("POST", "/v1/updates", record.wireJson(), session)
-    suspend fun poll(session: String): JSONArray = request("GET", "/v1/poll", session = session, polling = true).getJSONArray("updates")
+    suspend fun publish(record: ActivityRecord, session: String?) = request("POST", "/v1/updates", record.wireJson(), session, receiptKey = record.receiptKey)
+    suspend fun poll(session: String, name: String? = null): JSONArray = request("GET", "/v1/poll", session = session, polling = true, listenerName = name).getJSONArray("updates")
+    suspend fun listeners(session: String?) = request("GET", "/v1/listeners", session = session)
+    suspend fun receipts(id: String, key: String, revision: Int) = request("GET", "/v1/receipts/$id?after=$revision", receiptKey = key, longPolling = true)
+    suspend fun forgetReceipts(id: String, key: String) = request("DELETE", "/v1/receipts/$id", receiptKey = key)
     suspend fun acknowledge(session: String, ids: List<String>) = request("POST", "/v1/ack", JSONObject().put("ids", JSONArray(ids)), session)
     suspend fun close(session: String) = request("DELETE", "/v1/poll", session = session)
     fun cancelPoll() { pollConnection?.disconnect() }
 
     private suspend fun request(method: String, path: String, body: JSONObject? = null,
-        session: String? = null, polling: Boolean = false): JSONObject = withContext(Dispatchers.IO) {
+        session: String? = null, polling: Boolean = false, listenerName: String? = null,
+        receiptKey: String? = null, longPolling: Boolean = false): JSONObject = withContext(Dispatchers.IO) {
         val connection = URL(baseUrl + path).openConnection() as HttpURLConnection
         if (polling) pollConnection = connection
         try {
             connection.requestMethod = method
             connection.connectTimeout = 10_000
-            connection.readTimeout = if (polling) 35_000 else 15_000
+            connection.readTimeout = if (polling || longPolling) 35_000 else 15_000
             connection.instanceFollowRedirects = false
             connection.setRequestProperty("Accept", "application/json")
             connection.setRequestProperty("Cache-Control", "no-store")
             if (session != null) connection.setRequestProperty("X-Relay-Session", session)
+            if (receiptKey != null) connection.setRequestProperty("X-Receipt-Key", receiptKey)
+            if (listenerName != null) {
+                require(ListenerNames.valid(listenerName))
+                connection.setRequestProperty("X-Relay-Name", Base64.getEncoder().encodeToString(listenerName.trim().toByteArray(Charsets.UTF_8)))
+            }
             if (body != null) {
                 connection.doOutput = true
                 connection.setRequestProperty("Content-Type", "application/json")
@@ -63,7 +74,7 @@ class RelayClient(private val baseUrl: String) {
             if (connection.getHeaderField("cf-mitigated") == "challenge") {
                 throw RelayAccessException("Relay hosting requires browser verification. This endpoint must allow app requests.")
             }
-            if (code !in 200..299) throw IOException("Relay request failed (HTTP $code).")
+            if (code !in 200..299) throw RelayHttpException(code)
             val content = connection.inputStream.use { stream ->
                 val output = ByteArrayOutputStream()
                 val buffer = ByteArray(8192)

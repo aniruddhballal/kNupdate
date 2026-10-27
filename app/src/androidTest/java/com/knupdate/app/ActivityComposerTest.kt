@@ -52,6 +52,22 @@ class ActivityComposerTest {
     private fun text(description: String): String = scrollTo(hasContentDescription(description))
         .fetchSemanticsNode().config[SemanticsProperties.Text].joinToString { it.text }
 
+    @Test fun activeListenersCanBeOpenedBeforeSendingAnything() {
+        compose.onNodeWithContentDescription("Active listeners").performClick()
+        compose.onNodeWithTag("listener-directory-dialog").assertExists()
+        compose.onNodeWithText("CLOSE").performClick()
+        compose.onNodeWithTag("listener-directory-dialog").assertDoesNotExist()
+    }
+
+    @Test fun receivingExplainsNameVisibilityAndCancelKeepsTheReceiverOff() {
+        compose.onNodeWithContentDescription("Receive updates").assertIsOff().performClick()
+        compose.onNodeWithTag("receiving-options-dialog").assertExists()
+        compose.onNodeWithText("Share name").performClick()
+        compose.onNodeWithText("Your display name will be public while you listen. Senders can keep it in their local listener logs after you stop.").assertExists()
+        compose.onNodeWithText("CANCEL").performClick()
+        compose.onNodeWithContentDescription("Receive updates").assertIsOff()
+    }
+
     @Test fun liveClockTicksAndCustomTimeSurvivesRecreationUntilLiveIsSelected() {
         val live = text("Live current time")
         assertTrue(live.matches(Regex("Live  \\d{1,2}:\\d{2}:\\d{2} [AP]M")))

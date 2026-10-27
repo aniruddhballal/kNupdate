@@ -7,12 +7,12 @@ The app displays its version beside `kN`. Android metadata and the UI share `ver
 ## Behavior
 
 1. Choose a group, an activity from its icon grid, and a predefined detail. Time defaults to **Live**, captured when **kNupdate** is pressed; **Custom** optionally selects a timestamp or range. `Run / 5k` is included.
-2. Sending commits a copy to the phone's SQLite history before posting the activity to the relay. The local display name is never included.
+2. Sending commits a copy to the phone's SQLite history before posting the activity to the relay. Activity payloads exclude display names and private receipt keys. A listener can separately choose to share a name while receiving.
 3. Receiving uses a user-started foreground service with a persistent notification and 25-second HTTP long polls. A response returns immediately when an update arrives.
    Turning the header switch off, or choosing **Stop receiving** in the notification, immediately clears the local receiving state and invalidates callbacks from that receiver run. Closing the old network connection and notifying the relay happen separately, so a failed or pending poll cannot change the stopped state back to retrying.
 4. The relay snapshots active random listener sessions when the activity arrives. A five-second lease covers the gap between polls. New listeners are not added to an existing update.
 5. Each recipient commits its copy to local SQLite, then acknowledges it. Repeated delivery after a lost acknowledgement does not create another local entry or notification.
-6. The last required acknowledgement removes the relay's copy. A 30-second expiry removes unacknowledged copies; no listeners means immediate disposal. Concurrent activities have independent lifetimes.
+6. The last required acknowledgement removes the activity payload. A 30-second expiry removes unacknowledged copies; no listeners means immediate disposal. A separate, private receipt report can remain in memory until the sender collects the completed report, or until the original 30-second deadline. Concurrent activities have independent lifetimes.
 7. Sent history stays in **Sent**; incoming activity stays in **Inbox**. No offline catch-up is implemented. Only the optional coordinate snapshot supports an explicit scheduled send (see below). A failed POST is marked unconfirmed because a network timeout cannot prove whether the server accepted it.
 
 ## Optional location coordinates
@@ -29,7 +29,25 @@ Both Sent and Inbox retain coordinates and capture time in private local SQLite,
 
 Deploy the updated `backend` before using coordinate sends against an existing relay: the earlier relay rejects the additional field. Local validation uses synthetic coordinates, including a real HTTP/Android SQLite round trip. Physical-device GPS acquisition and screen-off timing still need acceptance testing.
 
-A listener is a random, temporary session handle. It is regenerated when receiving starts or Android reports loss of connectivity. It is not an account, device ID, display name, or profile. Online/offline detection is approximate: a dropped TCP connection cannot always be detected immediately, and the lease deliberately allows a small gap between requests. A failed delivery can remain pending until expiry.
+A listener is a random, temporary session handle. It is regenerated when receiving starts or Android reports loss of connectivity. It is not an account or device ID. An explicitly shared display name can label that session, but does not authenticate a person. Online/offline detection is approximate: a dropped TCP connection cannot always be detected immediately, and the lease deliberately allows a small gap between requests. A failed delivery can remain pending until expiry.
+
+## Listener names, active list, and Inbox confirmations
+
+The people icon beside the receiving switch opens **Active listeners** on any tab, including before sending. It lists recently active sessions on the same configured relay, marks the viewing phone's own session, and refreshes every five seconds while the dialog and app are visible. It also has Refresh and Close controls. Status is approximate: a failed connection can retain its lease for up to 30 seconds, followed by the next UI refresh. Names are self-entered, may repeat, and are not verified identities. Counts represent sessions, not unique people.
+
+Turning receiving on opens a name-sharing choice. **Anonymous** is the initial default; a pre-existing local display name is not silently uploaded. **Share name** explicitly permits anyone on this relay to see the name and senders to retain it in their local listener logs. The dialog permits editing the phone's display name, remembers the sharing choice, and requires a nonblank name of at most 80 UTF-16 characters without control or directional-override characters when sharing. Stopping and restarting receiving lets the person change the choice. Older clients and anonymous listeners appear as **Anonymous listener**. A chosen public name is carried as base64-encoded UTF-8 in the poll header over HTTPS, never as a URL parameter or inside an activity payload; this encoding is transport formatting, not encryption.
+
+The number returned on send is **who was listening at acceptance**, not proof of receipt. The relay freezes the eligible sessions' names at that point, excluding the sender's receiving session. **Sent** history has **View listeners** for these updates. It displays each name from that frozen snapshot and whether that phone acknowledged after saving the update to Inbox. Duplicate names remain separate recipients. A later name change, disconnect, or new listener does not rewrite an older update's snapshot.
+
+**Confirmed** means the app committed the update to local SQLite and the relay received its acknowledgement. Notifications may be denied or suppressed while an Inbox receipt is confirmed. It is not a read receipt. **Awaiting confirmation** means collection is still active. **Unconfirmed** means an acknowledgement was not collected; it cannot prove that the update missed the phone. A device may save an update and then lose the network before its acknowledgement reaches the relay.
+
+For each send, the phone creates a separate random receipt key and stores it privately with the local record before the POST. The server uses distinct per-update recipient IDs in reports; private listener session handles are never returned in the directory, activity reads, or receipt snapshot. The sender collects receipt changes by authenticated HTTP long polls, commits confirmations locally, and deletes a fully collected server report. Only confirmation GETs may retry; failed activity POSTs are never automatically resent. Active collection lasts at most the relay's 30-second window. A process restart can resume unfinished collection if the window remains open. If the sender is offline, terminated, or opens the app after expiry, missing confirmations remain unknown. A lost publish response may leave names/receipts unavailable because the phone cannot establish its accepted recipient snapshot.
+
+Activity bodies are removed after the final required Inbox acknowledgement even if the sender has not collected receipts yet. Receipt metadata has no copy of the activity body and expires at the original 30-second deadline. Active names remain only in the relay's process memory while their sessions are active and disappear on close or lease expiry. There is no Cloudflare SQL/KV/file write, durable receipt archive, or payload/name logging. Names and collected receipt results remain in the sender's private local SQLite history. Upgrading the database preserves older activities and coordinates; old entries retain their listener count and explicitly have no invented names or confirmations.
+
+These features require deploying the updated backend. Against an older relay, ordinary receiving/sending still works, listener details are unavailable, and the directory explains that the relay needs updating. New anonymous receivers and older receivers can both confirm Inbox saves using the existing ACK endpoint. All phones need the new APK to choose name sharing; installing it alone never enables sharing.
+
+The 1.4.0 backend was deployed on 27 October 2026 to the existing `aniruddhballaldeeksha.workers.dev` endpoint, version `98e3f153-3a85-4f34-8364-6ee726f15907`. Live read-only checks confirmed both advertised features, a successful directory response, and private receipt access checks without publishing activities or profiles. Release validation passed 46 Android unit/HTTP-client tests, 18 relay unit tests, three HTTP integration tests, and ten phone UI/stop checks. Named-client receipt integration used synthetic listeners on the local relay; production verification did not broadcast test messages.
 
 ## Activity catalog and times
 
@@ -66,11 +84,13 @@ On 26 October 2026, a short comparison on the same Android 15 phone used three w
 
 ## Storage and privacy
 
-The cloud relay holds plaintext activity JSON **only in process memory**. It does not write activity data to a file, SQL, KV, git, or a durable queue. The Durable Object uses a SQLite-backed namespace because Cloudflare's free plan requires that namespace type; the application does not use its database. A restart or deployment discards in-flight activities and listeners.
+The cloud relay holds plaintext activity JSON, active listener names, and temporary receipt metadata **only in process memory**. It does not write them to a file, SQL, KV, git, or a durable queue. The Durable Object uses a SQLite-backed namespace because Cloudflare's free plan requires that namespace type; the application does not use its database. A restart or deployment discards in-flight activities, listeners, and receipts.
 
 This choice avoids database recovery history: Cloudflare documents that SQLite-backed Durable Object storage can be recovered to points in the previous 30 days, so deleting database rows would not satisfy the intended short retention. API responses use `Cache-Control: no-store`, application observability is disabled, and the backend never logs activity bodies. Expiry removes application references; it is not a claim about secure erasure of provider RAM, network buffers, or provider infrastructure logs. HTTPS protects transport. Content is not end-to-end encrypted, and ordinary network metadata such as IP addresses still exists at the hosting provider.
 
 `GET /v1/updates` publicly exposes currently pending activities, without recipient session tokens. An arbitrary HTTP client can read or copy them while they are pending, and anyone can publish. The app's normal receive path offers an update only to sessions eligible when it was sent. No connection filtering, authentication, or abuse-proof public service is claimed for this prototype.
+
+`GET /v1/listeners` publicly exposes explicitly shared names and anonymous session counts while active; it never exposes session tokens. Per-update confirmation reports require the sender's private receipt key and are not part of public activity reads. People who choose to share a name are told that others can retain it locally. Stopping receiving does not erase copies already saved on other phones.
 
 Histories are stored in the app's private SQLite database without the former 50-entry cap. Existing local entries migrate without being uploaded; because the old format had no date, migrated entries explicitly say the date is unavailable. Android cloud backup and device-transfer backup are excluded for both history and preferences. Uninstalling or clearing app storage removes local history.
 
@@ -142,7 +162,7 @@ On each phone:
 
 1. Install the APK and enter a local display name.
 2. The provided APK already contains the relay address; no server setup is needed on the phone.
-3. Turn on the black-and-white switch at the right of the header. On Android 13+, the app requests notification permission if needed; receiving still starts if permission is declined. The persistent notification includes a stop action. Notification alerts can also be enabled later in Android's app notification settings.
+3. Turn on the black-and-white switch at the right of the header, choose Anonymous or Share name, then Start. On Android 13+, the app requests notification permission if needed; receiving still starts if permission is declined. The persistent notification includes a stop action. Notification alerts can also be enabled later in Android's app notification settings.
 4. Use the **plus** icon to compose an activity, the **paper-plane** icon to view sent activities, and the **postbox** icon for Inbox. Send an activity from another phone and check the recipient's Inbox and notification.
 5. Turn a recipient's internet off, send another activity, and reconnect. That activity should not be offered to its new listener session.
 
@@ -166,6 +186,7 @@ Screen-reader labels identify all three tabs and the receiving switch. Its acces
 | Sending | The activity was saved locally and is being submitted to the relay. |
 | No listeners | The relay accepted the send with zero eligible recipients, so it did not retain the activity. |
 | Sent · N listening | N listener sessions were eligible at acceptance. This is not confirmation that N people received a notification. |
+| M confirmed | M eligible sessions acknowledged after saving to Inbox. Open View listeners for names and individual confirmation times. |
 | Unconfirmed | The send result could not be confirmed. Its local copy remains, and it will not resend automatically. |
 | Local | This history entry is stored only on this phone, such as a migrated entry. |
 
@@ -236,8 +257,13 @@ The device audit confirmed backup disabled in the installed APK, one locally ret
 | POST | `/v1/updates` | Publish activity JSON; optional sender session excludes its own receiving service |
 | GET | `/v1/updates` | Public in-flight activity JSON; no recipient tokens |
 | POST | `/v1/ack` | `{ "ids": ["activity-uuid"] }`; recipient session in header |
+| GET | `/v1/listeners` | Public active names/anonymous rows and observation time; optional session header marks self |
+| GET | `/v1/receipts/{id}?after=N` | Long poll for a newer private report; sender capability in `X-Receipt-Key` |
+| DELETE | `/v1/receipts/{id}` | Delete a collected receipt report using the same private key |
 
 The publish body contains `id`, `title`, `body`, `startAt`, `endAt`, and `timeZone`, plus an optional `coordinates` object with exactly `latitude`, `longitude`, `accuracyMeters`, and `capturedAt`. Coordinates require `endAt: null`. Latitude/longitude must be finite and within their geographic ranges, accuracy must be nonnegative, and capture time must be at or after `startAt` and no more than a minute ahead of the relay clock. Times are Unix milliseconds. Ordinary activities omit `coordinates` entirely, preserving compatibility with older clients. Responses to polling/public reads add `expiresAt`. POST responses report how many listeners were eligible, not proof of notification or completed delivery.
+
+Polls may include `X-Relay-Name`, canonical base64 of a valid UTF-8 display name; omitting it means anonymous. POST may include a random UUID in `X-Receipt-Key`. Acceptance adds `recipients` (`id`, nullable `name`, nullable `confirmedAt`) and nullable `receiptExpiresAt`. These IDs are generated separately for each update. Receipt reports add `revision`, `expiresAt`, `complete`, and `expired`. Repeated pending POSTs return the original eligible snapshot; completed IDs with a surviving report cannot be republished. `/health` keeps protocol 1 and advertises `listener-directory` and `listener-receipts`. Old clients can ignore the extra response fields.
 
 ## Deferred
 

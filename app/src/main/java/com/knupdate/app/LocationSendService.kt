@@ -80,7 +80,8 @@ class LocationSendService : Service() {
                 withContext(Dispatchers.IO) { store.capture(record.id, fix) }
                 posting = true
                 val result = RelayClient(RelaySettings.url()).publish(record.copy(coordinates = fix), ReceiverStatus.session)
-                withContext(Dispatchers.IO) { store.updateStatus(record.id, "sent", result.getInt("listeners")) }
+                withContext(Dispatchers.IO) { store.recordAcceptance(record.id, result) }
+                ReceiptCoordinator.track(this@LocationSendService, record.id)
                 completed = true
             } catch (cancelled: CancellationException) {
                 throw cancelled

@@ -32,6 +32,78 @@ class ActivityStoreTest {
         endAt = System.currentTimeMillis() - 1, timeZone = "Asia/Calcutta", direction = direction,
         status = if (direction == "received") "received" else "sending")
 
+    @Test fun listenerSnapshotAndMonotonicConfirmationsPersistOnlyInLocalHistory() {
+        val sent = record()
+        store.insert(sent)
+        val first = ListenerReceipt(java.util.UUID.randomUUID().toString(), "Alex")
+        val second = ListenerReceipt(java.util.UUID.randomUUID().toString(), "Alex")
+        val anonymous = ListenerReceipt(java.util.UUID.randomUUID().toString(), null)
+        val snapshot = listOf(first, second, anonymous)
+        store.recordAcceptance(sent.id, JSONObject().put("listeners", 3)
+            .put("recipients", JSONArray(ListenerReceipt.json(snapshot)))
+            .put("receiptExpiresAt", System.currentTimeMillis() + 30_000))
+        val confirmed = snapshot.map { if (it.id == first.id) it.copy(confirmedAt = System.currentTimeMillis()) else it }
+        store.applyReceiptReport(sent.id, sent.receiptKey!!, JSONObject().put("recipients", JSONArray(ListenerReceipt.json(confirmed))))
+        store.close()
+        store = ActivityStore(context)
+        store.load()
+        assertEquals(confirmed, store.records.value.single().recipients)
+        assertEquals(sent.receiptKey, store.records.value.single().receiptKey)
+        // An older report must not undo a confirmation already committed locally.
+        store.applyReceiptReport(sent.id, sent.receiptKey, JSONObject().put("recipients", JSONArray(ListenerReceipt.json(snapshot))))
+        assertEquals(confirmed, store.records.value.single().recipients)
+        val renamed = confirmed.map { it.copy(name = "Changed") }
+        assertThrows(IllegalArgumentException::class.java) {
+            store.applyReceiptReport(sent.id, sent.receiptKey, JSONObject().put("recipients", JSONArray(ListenerReceipt.json(renamed))))
+        }
+        val wire = store.records.value.single().wireJson().toString()
+        assertFalse(wire.contains("Alex")); assertFalse(wire.contains(sent.receiptKey))
+        assertFalse(wire.contains(first.id)); assertFalse(wire.contains("recipients"))
+        val received = ActivityRecord.fromWire(store.records.value.single().wireJson())
+        assertNull(received.receiptKey); assertNull(received.recipients)
+        store.finishReceiptTracking(sent.id)
+        assertNull(store.records.value.single().receiptKey)
+        assertEquals(confirmed, store.records.value.single().recipients)
+    }
+
+    @Test fun olderRelayResponsesDoNotInventListenerNamesOrConfirmations() {
+        val sent = record()
+        store.insert(sent)
+        store.recordAcceptance(sent.id, JSONObject().put("listeners", 2))
+        val saved = store.records.value.single()
+        assertEquals("sent", saved.status); assertEquals(2, saved.listeners)
+        assertNull(saved.recipients); assertNull(saved.receiptKey); assertNull(saved.receiptExpiresAt)
+    }
+
+    @Test fun malformedAcceptanceCannotReplaceTheLocalSendWithFalseRecipients() {
+        val sent = record()
+        store.insert(sent)
+        val recipient = ListenerReceipt(java.util.UUID.randomUUID().toString(), "Test name")
+        assertThrows(IllegalArgumentException::class.java) {
+            store.recordAcceptance(sent.id, JSONObject().put("listeners", 2)
+                .put("recipients", JSONArray(ListenerReceipt.json(listOf(recipient)))))
+        }
+        assertEquals("sending", store.records.value.single().status)
+        assertNull(store.records.value.single().recipients)
+    }
+
+    @Test fun versionTwoCoordinateHistoryUpgradesWithoutUploadingOrInventingNames() {
+        store.close(); context.deleteDatabase("activities.db")
+        val coordinates = Coordinates(0.0, 0.0, 20.0, 1000).json().toString()
+        context.openOrCreateDatabase("activities.db", 0, null).use { db ->
+            db.execSQL("""CREATE TABLE activities (id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL,
+                start_at INTEGER NOT NULL, end_at INTEGER, time_zone TEXT NOT NULL, created_at INTEGER NOT NULL,
+                direction TEXT NOT NULL, status TEXT NOT NULL, listeners INTEGER, legacy INTEGER NOT NULL DEFAULT 0, coordinates TEXT)""")
+            db.execSQL("INSERT INTO activities VALUES ('old', 'Location', 'Home', 1000, NULL, 'UTC', 1000, 'sent', 'sent', 2, 0, ?)", arrayOf(coordinates))
+            db.version = 2
+        }
+        store = ActivityStore(context); store.load()
+        val old = store.records.value.single()
+        assertEquals("old", old.id); assertEquals(2, old.listeners)
+        assertEquals(0.0, old.coordinates!!.latitude, 0.0)
+        assertNull(old.recipients); assertNull(old.receiptKey)
+    }
+
     @Test fun olderLocationRangesRemainReadableWithoutRewritingTheirTimes() {
         val older = record().copy(title = "Current location", body = "Home")
         val policy = ACTIVITY_OPTIONS.single { it.id == "location" }.timePolicy

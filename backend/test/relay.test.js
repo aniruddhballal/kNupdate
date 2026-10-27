@@ -1,9 +1,94 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { Relay, TTL_MS, validateActivity } from "../src/relay.js";
+import { Relay, TTL_MS, validateActivity, decodeListenerName } from "../src/relay.js";
 
 const activity = (now = Date.now()) => ({ id: randomUUID(), title: "Run", body: "5k", startAt: now - 1_200_000, endAt: now - 1, timeZone: "Asia/Calcutta" });
+
+test("named listener snapshots and private Inbox receipts are separate from activity lifetime", async () => {
+  const relay = new Relay();
+  const alice = randomUUID(), bob = randomUUID(), key = randomUUID();
+  const a = relay.poll(alice, undefined, "Asha"), b = relay.poll(bob, undefined, "Ravi");
+  assert.deepEqual(relay.activeListeners(alice).listeners, [{ name: "Asha", self: true }, { name: "Ravi", self: false }]);
+  const value = activity();
+  const sent = relay.publish(value, null, key);
+  await Promise.all([a, b]);
+  assert.equal(sent.listeners, 2);
+  assert.deepEqual(sent.recipients.map(r => r.name), ["Asha", "Ravi"]);
+  const publicJson = JSON.stringify(relay.publicUpdates());
+  for (const privateValue of [alice, bob, key, "Asha", "Ravi", ...sent.recipients.map(r => r.id)]) assert.ok(!publicJson.includes(privateValue));
+  assert.throws(() => relay.pollReceipts(value.id, randomUUID()), { status: 404 });
+  assert.equal((await relay.pollReceipts(value.id, key)).recipients.filter(r => r.confirmedAt !== null).length, 0);
+  relay.acknowledge(sent.recipients[0].id, [value.id]);
+  assert.equal((await relay.pollReceipts(value.id, key)).revision, 0, "Publicly returned per-update IDs cannot acknowledge for a private session");
+  const confirmation = relay.pollReceipts(value.id, key, 0);
+  relay.acknowledge(alice, [value.id]);
+  const first = await confirmation;
+  assert.equal(first.recipients.filter(r => r.confirmedAt !== null).length, 1);
+  assert.equal(relay.records.size, 1);
+  assert.equal(relay.publish(value, null, key).listeners, 2, "Retries retain the original eligible snapshot");
+  assert.ok(sent.recipients.every(r => r.confirmedAt === null));
+  relay.acknowledge(bob, [value.id]);
+  assert.equal(relay.records.size, 0, "Last Inbox ACK immediately removes the activity payload");
+  const final = await relay.pollReceipts(value.id, key, first.revision);
+  assert.equal(final.complete, true);
+  assert.equal(final.recipients.filter(r => r.confirmedAt !== null).length, 2);
+  relay.forgetReceipts(value.id, key);
+  assert.equal(relay.receipts.size, 0);
+  assert.equal(relay.receiptWaiters.size, 0);
+  relay.close(alice); relay.close(bob);
+  assert.deepEqual(relay.activeListeners().listeners, []);
+});
+
+test("anonymous and duplicate names remain distinct recipients and old snapshots never rename", async () => {
+  const relay = new Relay({ pollMs: 5 });
+  const sessions = [randomUUID(), randomUUID(), randomUUID()];
+  const polls = sessions.map((session, index) => relay.poll(session, undefined, index === 2 ? null : "Alex"));
+  const value = activity(), key = randomUUID();
+  const result = relay.publish(value, null, key);
+  await Promise.all(polls);
+  assert.deepEqual(result.recipients.map(r => r.name), ["Alex", "Alex", null]);
+  assert.equal(new Set(result.recipients.map(r => r.id)).size, 3);
+  await relay.poll(sessions[0], undefined, "Renamed");
+  relay.acknowledge(sessions[0], [value.id]);
+  const report = await relay.pollReceipts(value.id, key);
+  assert.deepEqual(report.recipients.map(r => r.name), ["Alex", "Alex", null]);
+  assert.equal(report.recipients.filter(r => r.confirmedAt !== null).length, 1);
+  sessions.forEach(session => relay.close(session));
+});
+
+test("uncollected receipt metadata and names expire without durable history", async () => {
+  let now = Date.now();
+  const relay = new Relay({ now: () => now });
+  const session = randomUUID(), key = randomUUID(), value = activity(now);
+  const poll = relay.poll(session, undefined, "Temporary name");
+  relay.publish(value, null, key);
+  await poll;
+  const waiting = relay.pollReceipts(value.id, key, 0);
+  now += TTL_MS;
+  relay.prune();
+  const report = await waiting;
+  assert.equal(report.expired, true);
+  assert.equal(report.complete, false);
+  assert.equal(report.recipients[0].confirmedAt, null);
+  assert.equal(relay.records.size, 0);
+  assert.equal(relay.receipts.size, 0);
+  assert.equal(relay.listenerNames.size, 0);
+  assert.equal(relay.receiptWaiters.size, 0);
+  assert.throws(() => relay.pollReceipts(value.id, key), { status: 404 });
+  const alone = relay.publish(activity(now), null, randomUUID());
+  assert.deepEqual(alone.recipients, []);
+  assert.equal(alone.receiptExpiresAt, null);
+});
+
+test("listener headers support UTF-8 names and reject malformed or misleading control text", () => {
+  const encode = name => Buffer.from(name, "utf8").toString("base64");
+  assert.equal(decodeListenerName(null), null);
+  assert.equal(decodeListenerName(encode("  अनिरुद्ध  ")), "अनिरुद्ध");
+  for (const header of ["!!!", "/w==", encode(" "), encode("a".repeat(81)), encode("A\nB"), encode("A\u202eB")]) {
+    assert.throws(() => decodeListenerName(header), { status: 400 });
+  }
+});
 
 test("coordinates reach both listeners unchanged and disappear after the last ACK", async () => {
   const now = Date.now();

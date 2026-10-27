@@ -4,7 +4,10 @@ import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 
 const base = process.env.RELAY_TEST_URL ?? "http://127.0.0.1:8787";
-const headers = session => ({ "Content-Type": "application/json", ...(session ? { "X-Relay-Session": session } : {}) });
+const headers = (session, name, receiptKey) => ({ "Content-Type": "application/json",
+  ...(session ? { "X-Relay-Session": session } : {}),
+  ...(name ? { "X-Relay-Name": Buffer.from(name, "utf8").toString("base64") } : {}),
+  ...(receiptKey ? { "X-Receipt-Key": receiptKey } : {}) });
 const message = () => ({ id: randomUUID(), title: "Run", body: "5k", startAt: Date.now() - 1_200_000, endAt: Date.now() - 1, timeZone: "Asia/Calcutta" });
 async function jsonResponse(response) {
   const context = response.headers.get("cf-mitigated") === "challenge" ? " Hosting returned a browser challenge." : "";
@@ -12,12 +15,12 @@ async function jsonResponse(response) {
   assert.match(response.headers.get("content-type") ?? "", /application\/json/, "Relay must return JSON, not a hosting page.");
   return response.json();
 }
-const post = async (path, body, session) => {
-  const result = await fetch(base + path, { method: "POST", headers: headers(session), body: JSON.stringify(body) });
+const post = async (path, body, session, receiptKey) => {
+  const result = await fetch(base + path, { method: "POST", headers: headers(session, null, receiptKey), body: JSON.stringify(body) });
   return jsonResponse(result);
 };
 // Observe rejection immediately while POST and ACK requests proceed concurrently.
-const poll = session => fetch(base + "/v1/poll", { headers: headers(session) }).then(jsonResponse)
+const poll = (session, name) => fetch(base + "/v1/poll", { headers: headers(session, name) }).then(jsonResponse)
   .then(response => ({ response }), error => ({ error }));
 const pollResult = async pending => {
   const result = await pending;
@@ -77,4 +80,42 @@ test("HTTP rejects identity fields, malformed requests and oversized payloads", 
     assert.ok(!JSON.stringify(await response.json()).includes("private"));
   }
   assert.equal((await fetch(base + "/v1/poll")).status, 400);
+});
+
+test("HTTP directory, frozen names and private confirmations follow real recipient acknowledgements", { timeout: 20_000 }, async t => {
+  const first = randomUUID(), second = randomUUID(), key = randomUUID();
+  const value = { ...message(), title: "Synthetic named-listener test", body: "Local test only" };
+  t.after(async () => {
+    await Promise.allSettled([first, second].map(session => fetch(base + "/v1/poll", { method: "DELETE", headers: headers(session) })));
+    await fetch(base + "/v1/receipts/" + value.id, { method: "DELETE", headers: headers(null, null, key) });
+  });
+  const a = poll(first, "HTTP Asha"), b = poll(second, "HTTP Ravi");
+  await delay(500);
+  const directory = await jsonResponse(await fetch(base + "/v1/listeners", { headers: headers(first) }));
+  assert.equal(directory.listeners.length, 2);
+  assert.ok(directory.listeners.some(listener => listener.name === "HTTP Asha" && listener.self));
+  assert.ok(!JSON.stringify(directory).includes(first) && !JSON.stringify(directory).includes(second));
+  const sent = await post("/v1/updates", value, null, key);
+  assert.equal(sent.listeners, 2);
+  assert.deepEqual(new Set(sent.recipients.map(r => r.name)), new Set(["HTTP Asha", "HTTP Ravi"]));
+  const received = await Promise.all([pollResult(a), pollResult(b)]);
+  for (const response of received) {
+    const content = JSON.stringify(response);
+    for (const privateValue of ["HTTP Asha", "HTTP Ravi", key, first, second]) assert.ok(!content.includes(privateValue));
+  }
+  const endpoint = base + "/v1/receipts/" + value.id;
+  assert.equal((await fetch(endpoint, { headers: headers(null, null, randomUUID()) })).status, 404);
+  const waiting = fetch(endpoint + "?after=0", { headers: headers(null, null, key) }).then(jsonResponse);
+  await post("/v1/ack", { ids: [value.id] }, first);
+  const partial = await waiting;
+  assert.equal(partial.complete, false);
+  assert.equal(partial.recipients.filter(r => r.confirmedAt !== null).length, 1);
+  assert.equal((await current()).length, 1);
+  await post("/v1/ack", { ids: [value.id] }, second);
+  assert.deepEqual(await current(), []);
+  const final = await jsonResponse(await fetch(endpoint + "?after=" + partial.revision, { headers: headers(null, null, key) }));
+  assert.equal(final.complete, true);
+  assert.equal(final.recipients.filter(r => r.confirmedAt !== null).length, 2);
+  await jsonResponse(await fetch(endpoint, { method: "DELETE", headers: headers(null, null, key) }));
+  assert.equal((await fetch(endpoint, { headers: headers(null, null, key) })).status, 404);
 });

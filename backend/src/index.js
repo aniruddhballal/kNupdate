@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { Relay, HttpError, TTL_MS, POLL_MS } from "./relay.js";
+import { Relay, HttpError, TTL_MS, POLL_MS, decodeListenerName } from "./relay.js";
 
 function json(value, status = 200) {
   return Response.json(value, { status, headers: {
@@ -54,9 +54,23 @@ export class ActivityRelay extends DurableObject {
       const path = new URL(request.url).pathname;
       const session = request.headers.get("X-Relay-Session");
       if (request.method === "GET" && path === "/v1/poll") {
-        const updates = await this.relay.poll(session, request.signal);
+        const updates = await this.relay.poll(session, request.signal, decodeListenerName(request.headers.get("X-Relay-Name")));
         this.scheduleCleanup();
         return json({ updates });
+      }
+      if (request.method === "GET" && path === "/v1/listeners") {
+        const result = this.relay.activeListeners(session);
+        this.scheduleCleanup();
+        return json(result);
+      }
+      const receiptPath = /^\/v1\/receipts\/([^/]+)$/.exec(path);
+      if (receiptPath && (request.method === "GET" || request.method === "DELETE")) {
+        const key = request.headers.get("X-Receipt-Key");
+        const result = request.method === "GET"
+          ? await this.relay.pollReceipts(receiptPath[1], key, Number(new URL(request.url).searchParams.get("after") ?? -1), request.signal)
+          : this.relay.forgetReceipts(receiptPath[1], key);
+        this.scheduleCleanup();
+        return json(result);
       }
       if (request.method === "DELETE" && path === "/v1/poll") {
         this.relay.close(session);
@@ -65,7 +79,7 @@ export class ActivityRelay extends DurableObject {
       }
       if (request.method === "GET" && path === "/v1/updates") return json({ updates: this.relay.publicUpdates() });
       if (request.method === "POST" && path === "/v1/updates") {
-        const result = this.relay.publish(await readJson(request), session);
+        const result = this.relay.publish(await readJson(request), session, request.headers.get("X-Receipt-Key"));
         this.scheduleCleanup();
         return json(result, 201);
       }
@@ -87,7 +101,8 @@ export default {
   async fetch(request, env) {
     const path = new URL(request.url).pathname;
     if (request.method === "GET" && path === "/health") {
-      return json({ service: "knupdate-relay", protocol: 1, ttlMs: TTL_MS, pollMs: POLL_MS });
+      return json({ service: "knupdate-relay", protocol: 1, ttlMs: TTL_MS, pollMs: POLL_MS,
+        features: ["listener-directory", "listener-receipts"] });
     }
     if (!path.startsWith("/v1/")) return json({ error: "Not found." }, 404);
     return env.RELAY.get(env.RELAY.idFromName("public-broadcast-v1")).fetch(request);

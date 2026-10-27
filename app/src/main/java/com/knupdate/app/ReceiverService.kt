@@ -120,6 +120,7 @@ class ReceiverService : Service() {
         started = true
         scope.launch {
             var backoff = 1_000L
+            val sharedName = ListenerNames.sharedName(this@ReceiverService)
             val store = ActivityStore.get(this@ReceiverService)
             try {
                 while (isActive && ReceiverStatus.isCurrent(run)) {
@@ -132,7 +133,7 @@ class ReceiverService : Service() {
                         val session = ReceiverStatus.session ?: break
                         setStatus("Listening for public kNupdates")
                         if (!ReceiverStatus.isCurrent(run)) break
-                        val updates = client.poll(session)
+                        val updates = client.poll(session, sharedName)
                         if (!ReceiverStatus.isCurrent(run) || session != ReceiverStatus.session) continue
                         val acknowledgements = mutableListOf<String>()
                         for (index in 0 until updates.length()) {

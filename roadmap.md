@@ -11,6 +11,8 @@
 - Activity payloads held in memory only; no cloud database or file history.
 - Long polling, ephemeral listener sessions, multiple simultaneous recipients and updates.
 - Local commit before acknowledgement; duplicate suppression.
+- Explicitly shared listener names, a live directory, and local per-update eligible-recipient and confirmed-Inbox logs.
+- Private, temporary receipt reports in relay memory; confirmation is distinct from eligibility and reading.
 - Deletion after all eligible acknowledgements, with a 30-second fallback expiry.
 - Live-only delivery; no offline backlog or automatic retries of failed sends.
 - Optional immediate or scheduled coordinate snapshots with location permission, cancellation, and local coordinate history.

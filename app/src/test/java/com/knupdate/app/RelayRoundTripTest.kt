@@ -40,8 +40,8 @@ class RelayRoundTripTest {
             }
             try {
                 sender.health()
-                val firstPoll = async(Dispatchers.IO) { firstClient.poll(firstSession) }
-                val secondPoll = async(Dispatchers.IO) { secondClient.poll(secondSession) }
+                val firstPoll = async(Dispatchers.IO) { firstClient.poll(firstSession, "First listener") }
+                val secondPoll = async(Dispatchers.IO) { secondClient.poll(secondSession, "Second listener") }
                 delay(2_000)
                 val record = ActivityRecord(title = "Current location", body = "Synthetic location test", startAt = System.currentTimeMillis() - 1_200_000,
                     endAt = null, timeZone = "Asia/Calcutta",
@@ -49,7 +49,8 @@ class RelayRoundTripTest {
                 assertTrue(senderStore.insert(record))
                 val result = sender.publish(record, null)
                 assertEquals(2, result.getInt("listeners"))
-                senderStore.updateStatus(record.id, "sent", 2)
+                senderStore.recordAcceptance(record.id, result)
+                assertEquals(listOf("First listener", "Second listener").toSet(), senderStore.records.value.single().recipients!!.map { it.name }.toSet())
                 val first = ActivityRecord.fromWire(firstPoll.await().getJSONObject(0))
                 val second = ActivityRecord.fromWire(secondPoll.await().getJSONObject(0))
                 assertTrue(firstStore.insert(first))
@@ -61,10 +62,18 @@ class RelayRoundTripTest {
                 assertFalse(reopened.insert(first))
                 reopened.close()
                 firstClient.acknowledge(firstSession, listOf(first.id))
+                val firstReport = sender.receipts(record.id, record.receiptKey!!, -1)
+                senderStore.applyReceiptReport(record.id, record.receiptKey, firstReport)
+                assertEquals(1, senderStore.records.value.single().recipients!!.count { it.confirmedAt != null })
                 assertEquals(1, pendingCount())
                 assertTrue(secondStore.insert(second))
                 assertEquals(record.coordinates, secondStore.records.value.single().coordinates)
                 secondClient.acknowledge(secondSession, listOf(second.id))
+                val finalReport = sender.receipts(record.id, record.receiptKey, firstReport.getInt("revision"))
+                senderStore.applyReceiptReport(record.id, record.receiptKey, finalReport)
+                assertEquals(2, senderStore.records.value.single().recipients!!.count { it.confirmedAt != null })
+                sender.forgetReceipts(record.id, record.receiptKey)
+                senderStore.finishReceiptTracking(record.id)
                 assertEquals(0, pendingCount())
                 assertEquals("sent", senderStore.records.value.single().status)
                 assertEquals("received", secondStore.records.value.single().status)

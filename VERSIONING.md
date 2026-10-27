@@ -45,6 +45,8 @@ The activity catalog/grid and exact-time controls were first built as **1.2.0 (c
 
 **1.3.5 (code 17)** enforces audited custom-time policies across all 100 activities: eight moment/snapshot activities allow At only, and 92 allow both modes. Drink keeps At as its custom default while allowing a longer interval. Live and existing history are preserved. The per-activity rationale is in `ACTIVITY_TIME_AUDIT.md`; no relay deployment is needed.
 
+**1.4.0 (code 18)** adds an active-listener directory, explicit anonymous/name-sharing choice, local per-update listener snapshots, and private confirmations of Inbox saves. Existing history and coordinates migrate locally. The relay adds backward-compatible directory/receipt endpoints and retains receipt metadata only in memory within the existing 30-second window. This feature release requires the updated backend as well as the APK.
+
 Every normal app APK/AAB build reserves the next patch version and increments versionCode once per Gradle invocation. Debug, preview and release variants in the same invocation share that reservation. This includes full `build`, `assemble`, `bundle`, `package` and `install` artifact tasks, including Android Studio's normal `:app:assembleDebug` invocation. Use complete task names rather than abbreviations.
 
 ```powershell

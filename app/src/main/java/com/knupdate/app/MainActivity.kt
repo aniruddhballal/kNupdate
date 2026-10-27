@@ -342,6 +342,8 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
     var lastSentId by rememberSaveable { mutableStateOf<String?>(null) }
     var showCustomTime by rememberSaveable { mutableStateOf(false) }
     var shareCoordinates by rememberSaveable { mutableStateOf(false) }
+    var showReceivingOptions by rememberSaveable { mutableStateOf(false) }
+    var showListeners by rememberSaveable { mutableStateOf(false) }
     val selectedActivity = ACTIVITY_OPTIONS.firstOrNull { it.id == selectedActivityId } ?: ACTIVITY_OPTIONS.first()
     val selectedGroup = ACTIVITY_GROUPS.firstOrNull { it.id == selectedGroupId } ?: ACTIVITY_GROUPS.first()
     val coordinateMode = selectedActivityId == "location" && shareCoordinates
@@ -378,17 +380,21 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
         } else timeError = "Allow location in Android app settings to share coordinates."
     }
 
-    fun changeReceiving(enabled: Boolean) {
+    fun beginReceiving() {
         receiverError = null
-        if (!enabled) ReceiverService.stop(context)
-        else if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else startReceiving()
     }
 
+    fun changeReceiving(enabled: Boolean) {
+        receiverError = null
+        if (!enabled) ReceiverService.stop(context) else showReceivingOptions = true
+    }
+
     LaunchedEffect(Unit) {
         if (tab !in listOf("New", "Sent", "Inbox")) tab = "New"
-        try { withContext(Dispatchers.IO) { store.load() }; ready = true }
+        try { withContext(Dispatchers.IO) { store.load() }; ready = true; ReceiptCoordinator.resume(context) }
         catch (_: Exception) { loadError = "History unavailable." }
     }
     LaunchedEffect(showInbox) {
@@ -438,7 +444,15 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
     }
 
     Column(modifier = Modifier.fillMaxSize().background(Paper).statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp)) {
-        ScreenHeader { ReceivingToggle(receiver, ::changeReceiving) }
+        ScreenHeader {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(48.dp).semantics { contentDescription = "Active listeners" }
+                    .clickable(role = Role.Button) { showListeners = true }, contentAlignment = Alignment.Center) {
+                    Icon(painterResource(R.drawable.ic_activity_meeting_people), null, tint = Ink, modifier = Modifier.size(24.dp))
+                }
+                ReceivingToggle(receiver, ::changeReceiving)
+            }
+        }
         IconNavigation(selected = tab, onSelect = { tab = it })
         loadError?.let { Text(it, color = Color(0xFFB3261E), fontSize = 13.sp) }
         receiverError?.let { Text(it, color = Color(0xFFB3261E), fontSize = 13.sp) }
@@ -510,6 +524,13 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
                 timeError = null; showCustomTime = false
             })
     }
+    if (showListeners) ListenerDirectoryDialog { showListeners = false }
+    if (showReceivingOptions) ReceivingOptionsDialog(onDismiss = { showReceivingOptions = false }, onConfirm = { name, share ->
+        context.getSharedPreferences("knupdate_local", 0).edit()
+            .putString(DISPLAY_NAME_KEY, name).putBoolean("share_listener_name", share).apply()
+        showReceivingOptions = false
+        beginReceiving()
+    })
 }
 
 private fun deliveryText(record: ActivityRecord): String = when (record.status) {
@@ -519,7 +540,8 @@ private fun deliveryText(record: ActivityRecord): String = when (record.status) 
     "cancelled" -> "Cancelled · not sent"
     "missed" -> "Location send interrupted · not sent"
     "sending" -> "Sending"
-    "sent" -> if (record.listeners == 0) "No listeners" else "Sent · ${record.listeners} listening"
+    "sent" -> if (record.listeners == 0) "No listeners" else "Sent · ${record.listeners ?: "?"} listening" +
+        (record.recipients?.let { " · ${it.count { recipient -> recipient.confirmedAt != null }} confirmed" } ?: "")
     "uncertain" -> "Unconfirmed"
     "received" -> "Received"
     else -> "Local"
@@ -527,6 +549,7 @@ private fun deliveryText(record: ActivityRecord): String = when (record.status) 
 
 @Composable
 private fun HistoryList(records: List<ActivityRecord>) {
+    var selectedId by remember { mutableStateOf<String?>(null) }
     if (records.isEmpty()) {
         Text("No updates",
             color = Muted, fontSize = 14.sp, modifier = Modifier.padding(vertical = 24.dp))
@@ -541,9 +564,14 @@ private fun HistoryList(records: List<ActivityRecord>) {
                 }
                 Text(record.timeText(), color = Muted, fontSize = 12.sp)
                 if (record.direction == "sent") Text(deliveryText(record), color = Muted, fontSize = 12.sp)
+                if (record.direction == "sent" && (record.listeners ?: 0) > 0) {
+                    if (record.recipients != null) TimeButton("VIEW LISTENERS", { selectedId = record.id }, Modifier.fillMaxWidth())
+                    else Text("Listener details unavailable for this update.", color = Muted, fontSize = 12.sp)
+                }
             }
         }
     }
+    records.firstOrNull { it.id == selectedId }?.let { record -> ListenerSnapshotDialog(record) { selectedId = null } }
 }
 
 @Composable
@@ -882,7 +910,7 @@ private fun LiveTimeField(onCustom: () -> Unit, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ChoiceRow(choices: List<String>, selected: String, onSelect: (String) -> Unit) {
+internal fun ChoiceRow(choices: List<String>, selected: String, onSelect: (String) -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         choices.forEach { choice ->
             val active = choice == selected
@@ -900,7 +928,7 @@ private fun ChoiceRow(choices: List<String>, selected: String, onSelect: (String
 }
 
 @Composable
-private fun TimeButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun TimeButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
     OutlinedButton(
         onClick = onClick,
         modifier = modifier.height(48.dp),
@@ -914,7 +942,7 @@ private fun TimeButton(label: String, onClick: () -> Unit, modifier: Modifier = 
 }
 
 @Composable
-private fun BlackButton(label: String, enabled: Boolean = true, onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun BlackButton(label: String, enabled: Boolean = true, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Button(
         onClick = onClick,
         enabled = enabled,
@@ -967,7 +995,7 @@ private fun UpdateButton(success: Boolean, onClick: () -> Unit, modifier: Modifi
 }
 
 @Composable
-private fun LocalTextField(value: String, onValueChange: (String) -> Unit, placeholder: String, onDone: () -> Unit) {
+internal fun LocalTextField(value: String, onValueChange: (String) -> Unit, placeholder: String, onDone: () -> Unit) {
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
