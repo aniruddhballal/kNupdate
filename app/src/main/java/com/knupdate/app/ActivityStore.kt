@@ -51,7 +51,7 @@ data class ActivityRecord(
             val start = json.getLong("startAt")
             val end = if (json.isNull("endAt")) null else json.getLong("endAt")
             val zone = json.getString("timeZone")
-            require(title.isNotBlank() && title.length <= 80 && body.isNotBlank() && body.length <= 280)
+            require(title.isNotBlank() && title.length <= 80 && body.length <= 280)
             require(start >= 0 && start <= System.currentTimeMillis() + 60_000)
             require(end == null || (end > start && end <= System.currentTimeMillis() + 60_000))
             ZoneId.of(zone)

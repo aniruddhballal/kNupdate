@@ -41,7 +41,7 @@ export function validateActivity(value, now) {
   }
   if (typeof value.id !== "string" || !UUID.test(value.id) || typeof value.title !== "string" ||
       value.title.trim().length < 1 || value.title.length > 80 ||
-      typeof value.body !== "string" || value.body.trim().length < 1 || value.body.length > 280 ||
+      typeof value.body !== "string" || value.body.length > 280 ||
       !Number.isSafeInteger(value.startAt) || value.startAt < 0 || value.startAt > now + 60_000 ||
       (value.endAt !== null && (!Number.isSafeInteger(value.endAt) ||
         value.endAt <= value.startAt || value.endAt > now + 60_000)) ||

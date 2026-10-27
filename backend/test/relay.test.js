@@ -216,10 +216,15 @@ test("public JSON has no listener tokens or identity fields", async () => {
 
 test("invalid timestamps, bodies, zones and non-UUID IDs are rejected", () => {
   const now = Date.now();
-  for (const changes of [{ startAt: now + 120_000 }, { endAt: now - 2_000_000 }, { body: "" },
+  for (const changes of [{ startAt: now + 120_000 }, { endAt: now - 2_000_000 }, { body: null },
     { body: "x".repeat(281) }, { timeZone: "invalid" }, { id: "x" }, { id: [randomUUID()] }, { startAt: "today" }, { endAt: undefined }]) {
     assert.throws(() => validateActivity({ ...activity(now), ...changes }, now), { status: 400 });
   }
+});
+
+test("empty activity bodies are accepted for optional details", () => {
+  const now = Date.now();
+  assert.equal(validateActivity({ ...activity(now), body: "" }, now).body, "");
 });
 
 test("aborted and explicitly closed listeners do not receive new sends", async () => {

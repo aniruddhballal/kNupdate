@@ -30,6 +30,8 @@ internal data class ActivityOption(
     init { require(timePolicy.allows(defaultIsRange)) { "Custom default must be supported by the activity." } }
 }
 
+internal const val NO_ACTIVITY_DETAIL = "No detail"
+
 internal data class ActivityGroup(val id: String, val label: String, val icon: Int, val activities: List<ActivityOption>)
 
 private fun activity(id: String, title: String, icon: Int, vararg details: String,
@@ -41,11 +43,11 @@ private fun activity(id: String, title: String, icon: Int, vararg details: Strin
 internal val ACTIVITY_GROUPS = listOf(
     ActivityGroup("everyday", "Everyday", R.drawable.ic_activity_location, listOf(
         activity("location", "Current location", R.drawable.ic_activity_location, "Home", "Work", "School", "University", "Gym", "Outside", "Away", timePolicy = AT_ONLY, label = "Location"),
-        activity("waking", "Waking up", R.drawable.ic_activity_waking, "Home", "Away", "After a nap", timePolicy = AT_ONLY, label = "Wake up"),
-        activity("sleeping", "Sleeping", R.drawable.ic_activity_sleeping, "Night's sleep", "Nap", "Home", "Away", timePolicy = BOTH, label = "Sleep"),
-        activity("resting", "Resting", R.drawable.ic_activity_resting, "At home", "Short break", "Lying down", timePolicy = BOTH, label = "Rest"),
+        activity("waking", "Waking up", R.drawable.ic_activity_waking, timePolicy = AT_ONLY, label = "Wake up"),
+        activity("sleeping", "Sleeping", R.drawable.ic_activity_sleeping, timePolicy = BOTH, label = "Sleep"),
+        activity("resting", "Resting", R.drawable.ic_activity_resting, timePolicy = BOTH, label = "Rest"),
         activity("eating", "Eating", R.drawable.ic_activity_eating, "Breakfast", "Lunch", "Dinner", "Snack", "Brunch", timePolicy = BOTH, label = "Eat"),
-        activity("drinking", "Drinking", R.drawable.ic_activity_drinking, "Water", "Coffee", "Tea", "Juice", "Smoothie", "Milk", timePolicy = BOTH, defaultIsRange = false, label = "Drink"),
+        activity("drinking", "Drinking", R.drawable.ic_activity_drinking, "Water", "Coffee", "Tea", "Juice", "Smoothie", "Milk", timePolicy = AT_ONLY, label = "Drink"),
         activity("cooking", "Cooking", R.drawable.ic_activity_cooking, "Breakfast", "Lunch", "Dinner", "Baking", "Snack", timePolicy = BOTH, label = "Cook"),
         activity("showering", "Bathing", R.drawable.ic_activity_showering, "Shower", "Bath", timePolicy = BOTH, label = "Bathe"),
         activity("grooming", "Grooming", R.drawable.ic_activity_grooming, "Brushing teeth", "Skincare", "Shaving", "Hair care", timePolicy = BOTH, label = "Groom"),
@@ -54,8 +56,6 @@ internal val ACTIVITY_GROUPS = listOf(
     ActivityGroup("work", "Work", R.drawable.ic_activity_working, listOf(
         activity("working", "Working", R.drawable.ic_activity_working, "Office", "Home", "Coworking space", "On site", timePolicy = BOTH, label = "Work"),
         activity("meeting", "Meeting", R.drawable.ic_activity_meeting, "Team meeting", "One-to-one", "Client meeting", "Workshop", timePolicy = BOTH),
-        activity("video-call", "Video call", R.drawable.ic_activity_video_call, "Work", "Family", "Friends", "Appointment", timePolicy = BOTH),
-        activity("phone-call", "Phone call", R.drawable.ic_activity_phone_call, "Work", "Family", "Friends", "Appointment", timePolicy = BOTH),
         activity("email", "Email", R.drawable.ic_activity_email, "Reading", "Writing", "Clearing inbox", timePolicy = BOTH),
         activity("planning", "Planning", R.drawable.ic_activity_planning, "Day", "Week", "Project", "Schedule", timePolicy = BOTH, label = "Plan"),
         activity("focus", "Focused work", R.drawable.ic_activity_focus, "Writing", "Coding", "Design", "Analysis", "Problem solving", timePolicy = BOTH, label = "Focus"),
@@ -113,6 +113,8 @@ internal val ACTIVITY_GROUPS = listOf(
     )),
     ActivityGroup("social", "Social", R.drawable.ic_activity_meeting_people, listOf(
         activity("meeting-people", "Meeting people", R.drawable.ic_activity_meeting_people, "Catch-up", "New people", "Group gathering", timePolicy = BOTH, label = "Meet"),
+        activity("video-call", "Video call", R.drawable.ic_activity_video_call, "Family", "Friends", "Work", "Appointment", timePolicy = BOTH),
+        activity("phone-call", "Phone call", R.drawable.ic_activity_phone_call, "Family", "Friends", "Work", "Appointment", timePolicy = BOTH),
         activity("family", "Family time", R.drawable.ic_activity_family, "At home", "Outing", "Meal together", timePolicy = BOTH, label = "Family"),
         activity("friends", "With friends", R.drawable.ic_activity_friends, "Hanging out", "Meal together", "Outing", timePolicy = BOTH, label = "Friends"),
         activity("date", "Date", R.drawable.ic_activity_date, "Meal", "Coffee", "Walk", "Outing", timePolicy = BOTH),

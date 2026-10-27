@@ -12,7 +12,6 @@ class ActivityCatalogTest {
         ACTIVITY_OPTIONS.forEach { activity ->
             assertTrue(activity.title.isNotBlank() && activity.title.length <= 80)
             assertTrue(activity.icon != 0)
-            assertTrue(activity.bodies.isNotEmpty())
             assertEquals(activity.bodies.size, activity.bodies.toSet().size)
             assertTrue(activity.bodies.all { it.isNotBlank() && it.length <= 280 })
         }
@@ -20,8 +19,8 @@ class ActivityCatalogTest {
 
     @Test fun auditedPoliciesKeepMomentEventsSingleAndOngoingActivitiesFlexible() {
         val moments = setOf("location", "waking", "arrived", "departed", "collecting", "delivery", "medicine", "check-in")
-        assertEquals(moments, ACTIVITY_OPTIONS.filter { it.timePolicy == ActivityTimePolicy.AT_ONLY }.map { it.id }.toSet())
-        assertEquals(92, ACTIVITY_OPTIONS.count { it.timePolicy == ActivityTimePolicy.BOTH })
+        assertEquals(moments + "drinking", ACTIVITY_OPTIONS.filter { it.timePolicy == ActivityTimePolicy.AT_ONLY }.map { it.id }.toSet())
+        assertEquals(91, ACTIVITY_OPTIONS.count { it.timePolicy == ActivityTimePolicy.BOTH })
         assertFalse(ACTIVITY_OPTIONS.any { it.timePolicy == ActivityTimePolicy.RANGE_ONLY })
         assertEquals(moments + "drinking", ACTIVITY_OPTIONS.filter { !it.defaultIsRange }.map { it.id }.toSet())
         ACTIVITY_OPTIONS.forEach { assertTrue(it.id, it.timePolicy.allows(it.defaultIsRange)) }
@@ -30,12 +29,20 @@ class ActivityCatalogTest {
     @Test fun mixedUseActivitiesSupportQuickSnapshotsAndLongerSessions() {
         for (id in setOf("drinking", "post-office", "fuel-charge", "bank", "health-visit", "pet-care", "photography")) {
             val activity = ACTIVITY_OPTIONS.single { it.id == id }
-            assertEquals(id, ActivityTimePolicy.BOTH, activity.timePolicy)
+            if (id == "drinking") assertEquals(ActivityTimePolicy.AT_ONLY, activity.timePolicy)
+            else assertEquals(id, ActivityTimePolicy.BOTH, activity.timePolicy)
         }
         val drink = ACTIVITY_OPTIONS.single { it.id == "drinking" }
         assertTrue(drink.bodies.containsAll(listOf("Water", "Coffee", "Tea")))
         assertFalse(drink.defaultIsRange)
         assertTrue(ACTIVITY_OPTIONS.filter { it.id in setOf("eating", "working", "studying", "run", "sleeping") }.all { it.defaultIsRange })
+    }
+
+    @Test fun simpleActivitiesHaveNoDetailsAndCallsBelongToSocial() {
+        assertTrue(ACTIVITY_OPTIONS.filter { it.id in setOf("waking", "sleeping", "resting") }.all { it.bodies.isEmpty() })
+        assertEquals("social", ACTIVITY_GROUPS.single { group -> group.activities.any { it.id == "phone-call" } }.id)
+        assertEquals("social", ACTIVITY_GROUPS.single { group -> group.activities.any { it.id == "video-call" } }.id)
+        assertTrue(ACTIVITY_OPTIONS.all { it.bodies.isEmpty() || it.bodies.all { body -> body != NO_ACTIVITY_DETAIL } })
     }
 
     @Test fun unsupportedCatalogDefaultsCannotBeConstructed() {

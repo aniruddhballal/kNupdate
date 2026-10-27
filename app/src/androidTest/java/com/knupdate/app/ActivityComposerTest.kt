@@ -69,6 +69,7 @@ class ActivityComposerTest {
     }
 
     @Test fun liveClockTicksAndCustomTimeSurvivesRecreationUntilLiveIsSelected() {
+        scrollTo(hasText("Eat") and hasClickAction()).performClick()
         val live = text("Live current time")
         assertTrue(live.matches(Regex("Live  \\d{1,2}:\\d{2}:\\d{2} [AP]M")))
         compose.mainClock.autoAdvance = false
@@ -157,8 +158,17 @@ class ActivityComposerTest {
         compose.onNodeWithText("CANCEL").performClick()
     }
 
-    @Test fun allEightMomentActivitiesOfferOnlyAtInsideCustomAndStillDefaultToLive() {
-        val moments = listOf("Everyday" to "Location", "Everyday" to "Wake up",
+    @Test fun locationAlwaysUsesCoordinatesAndTheLiveTimestamp() {
+        selectGroup("Everyday")
+        scrollTo(hasText("Location") and hasClickAction()).performClick()
+        scrollTo(hasText("Coordinates are always shared.", substring = true)).assertExists()
+        scrollTo(hasText("Live now")).assertExists()
+        compose.onNodeWithContentDescription("Set custom time").assertDoesNotExist()
+        scrollTo(hasText("No detail") and hasClickAction()).assertIsSelected()
+    }
+
+    @Test fun momentActivitiesOfferOnlyAtInsideCustomAndStillDefaultToLive() {
+        val moments = listOf("Everyday" to "Wake up",
             "Travel" to "Arrived", "Travel" to "Departed", "Errands" to "Collect", "Errands" to "Delivery",
             "Wellbeing" to "Medicine", "Wellbeing" to "Check-in")
         moments.forEach { (group, activity) ->
@@ -176,16 +186,17 @@ class ActivityComposerTest {
         }
     }
 
-    @Test fun drinkingDefaultsToAtButSupportsACustomCoffeeInterval() {
+    @Test fun drinkingIsAtOnlyAndDetailsCanBeCleared() {
         selectGroup("Everyday")
         scrollTo(hasText("Drink") and hasClickAction()).performClick()
+        scrollTo(hasText("No detail") and hasClickAction()).assertIsSelected()
         scrollTo(hasText("Coffee") and hasClickAction()).performClick()
+        scrollTo(hasText("No detail") and hasClickAction()).performClick()
+        scrollTo(hasText("No detail") and hasClickAction()).assertIsSelected()
         scrollTo(hasContentDescription("Set custom time")).performClick()
         compose.onNodeWithText("At").assertIsSelected()
-        compose.onNodeWithText("From–to").performClick()
-        compose.onNodeWithContentDescription("From selected time").assertExists()
-        compose.onNodeWithContentDescription("To selected time").assertExists()
-        compose.onNodeWithText("USE TIME").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("From selected time").assertDoesNotExist()
+        compose.onNodeWithContentDescription("To selected time").assertDoesNotExist()
         compose.onNodeWithText("CANCEL").performClick()
         scrollTo(hasContentDescription("Live current time")).assertExists()
     }

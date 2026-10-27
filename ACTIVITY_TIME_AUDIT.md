@@ -10,6 +10,7 @@ This is an activity broadcast app. A person can report a moment, a current situa
 - **Custom At:** an event occurred, or the selected activity/state was reported at that instant. For ongoing activities this does not establish when the whole activity started or finished.
 - **Custom From–to:** the user reports that the activity occupied an explicitly selected interval. Both endpoints are required. It does not imply that the entire activity ended at To; someone could report one hour of a longer work session.
 - Ordinary custom values must be in the past, and To must be after From. Coordinate snapshots alone can schedule a future At time; the phone requests a fresh fix when due.
+- **Optional details:** the composer starts with no detail selected. A selected detail can be cleared, and an empty activity body is valid on the wire.
 
 The distinction is the meaning of the activity and its details, not how many seconds an action physically takes. A pickup can take several minutes, but this catalog's Collect entry reports the pickup point. Queue or a service/errand activity can describe time spent waiting or visiting. Conversely, a short activity such as drinking coffee can still have a meaningful interval.
 
@@ -17,26 +18,26 @@ The distinction is the meaning of the activity and its details, not how many sec
 
 | Custom policy | Count | Initial choice inside Custom |
 | --- | ---: | --- |
-| At only | 8 | At |
-| At or From–to | 92 | At for Drink; From–to for the other 91 |
+| At only | 9 | At for Wake up, Drink and the transition/snapshot activities |
+| At or From–to | 91 | From–to by default for the other activities |
 | From–to only | 0 | No current activity warrants this restriction |
 
-At-only: **Location, Wake up, Arrived, Departed, Collect, Delivery, Medicine, Check-in**. Each is a snapshot, transition, handover, dose, or check-in report under its current name and detail choices.
+At-only: **Location, Wake up, Drink, Arrived, Departed, Collect, Delivery, Medicine, Check-in**. Location is live-only in the composer; it always sends coordinates and has no custom-time editor. Drink is a point report and no longer supports a range.
 
 No ongoing activity is forced to From–to. A statement such as “working at 10,” “sleeping at 11,” or “attending therapy at 3” is meaningful even if the person does not know the full interval. Requiring two endpoints would block those legitimate custom snapshots and be inconsistent with the universal Live option. The policy model can represent From–to only, but no existing activity is assigned it merely to fill that category.
 
-Policies cover every existing detail under an activity. Broad activities with mixed uses retain both modes: Drink includes a quick drink and coffee over a break; Post office includes collection and a service visit; Fuel / charge includes a fuel stop and an EV charging session. Changing a detail must not silently change what an already selected timestamp means.
+Policies cover every existing detail under an activity, while details themselves remain optional. Broad activities with mixed uses retain both modes: Post office includes collection and a service visit; Fuel / charge includes a fuel stop and an EV charging session. Changing a detail must not silently change what an already selected timestamp means.
 
 ## Everyday
 
 | Activity (`id`) | Meaning of At | Meaning of From–to, or reason it is unavailable | Custom policy / initial choice |
 | --- | --- | --- | --- |
 | Location (`location`) | The reported place at one instant: Home, Work, School, University, Gym, Outside, or Away. Coordinates are a fix with their own capture time. | Unavailable. A current-location snapshot does not establish residence/occupancy over an interval or a movement trace. One coordinate fix cannot represent a whole range. | At only / At |
-| Wake up (`waking`) | The wake-up transition at Home, Away, or after a nap. | Unavailable. This records the wake-up point; getting ready and other routines have their own activities. It does not measure a process of gradually waking. | At only / At |
-| Sleep (`sleeping`) | Reported asleep at that moment, for a night's sleep or a nap, at Home or Away. | A reported sleeping interval. A point report cannot supply a missing bedtime or wake time, so neither endpoint is inferred. | Both / From–to |
-| Rest (`resting`) | Resting at home, lying down, or taking a short break at that instant. | Time spent resting or taking the break. | Both / From–to |
+| Wake up (`waking`) | The wake-up transition at that instant. | Unavailable. This records the wake-up point; getting ready and other routines have their own activities. | At only / At; no details |
+| Sleep (`sleeping`) | Reported asleep at that moment. | A reported sleeping interval. | Both / From–to; no details |
+| Rest (`resting`) | Resting at that instant. | Time spent resting or taking the break. | Both / From–to; no details |
 | Eat (`eating`) | Breakfast, lunch, dinner, a snack, or brunch at that moment. | Time spent eating that meal or snack. Meal type does not make a duration meaningless. | Both / From–to |
-| Drink (`drinking`) | A quick drink or a point report of having Water, Coffee, Tea, Juice, Smoothie, or Milk. | A drinking occasion, such as coffee over a break. Restricting the entire activity to a moment would exclude a meaningful use of several details. | Both / At |
+| Drink (`drinking`) | A point report of having Water, Coffee, Tea, Juice, Smoothie, or Milk, with optional detail. | Unavailable. Drinking is represented by one timestamp; no duration is sent. | At only / At |
 | Cook (`cooking`) | Preparing Breakfast, Lunch, Dinner, Baking, or a Snack at that moment. | A cooking or baking interval. This is when cooking happened, not when the meal was planned to be served. | Both / From–to |
 | Bathe (`showering`) | In a shower or bath at that moment. | Time spent showering or bathing. | Both / From–to |
 | Groom (`grooming`) | Brushing teeth, skincare, shaving, or hair care at that moment. | Time spent on that grooming task or routine. | Both / From–to |
@@ -48,8 +49,6 @@ Policies cover every existing detail under an activity. Broad activities with mi
 | --- | --- | --- | --- |
 | Work (`working`) | Working at the Office, Home, a Coworking space, or On site at that instant. | A reported work interval, including part of a longer workday. | Both / From–to |
 | Meeting (`meeting`) | In a Team meeting, One-to-one, Client meeting, or Workshop at that moment. | Attendance or participation during a selected interval. | Both / From–to |
-| Video call (`video-call`) | On a work, family, friends, or appointment call at that instant. | Time spent on that video call. | Both / From–to |
-| Phone call (`phone-call`) | On the selected kind of phone call at that instant. | Time spent on that phone call. | Both / From–to |
 | Email (`email`) | Reading, Writing, or Clearing inbox at that moment. | An email-handling session. At is a status report, not proof that a message was sent. | Both / From–to |
 | Plan (`planning`) | Planning a Day, Week, Project, or Schedule at that moment. | Time spent planning. The time fields describe the planning work, not the future day or project being planned. | Both / From–to |
 | Focus (`focus`) | Engaged in Writing, Coding, Design, Analysis, or Problem solving at that instant. | A focused-work interval. No timer or minimum session length is implied. | Both / From–to |
@@ -122,6 +121,8 @@ Policies cover every existing detail under an activity. Broad activities with mi
 | Activity (`id`) | Meaning of At | Meaning of From–to | Custom policy / initial choice |
 | --- | --- | --- | --- |
 | Meet (`meeting-people`) | In a Catch-up, meeting New people, or a Group gathering at that moment. | Time spent meeting or socialising. This differs from the point event Arrived. | Both / From–to |
+| Video call (`video-call`) | On a Family, Friends, Work, or Appointment video call at that instant. | Time spent on that video call. | Both / From–to |
+| Phone call (`phone-call`) | On a Family, Friends, Work, or Appointment phone call at that instant. | Time spent on that phone call. | Both / From–to |
 | Family (`family`) | Spending family time At home, on an Outing, or during a Meal together at that instant. | A family-time interval. | Both / From–to |
 | Friends (`friends`) | Hanging out, having a Meal together, or on an Outing with friends at that moment. | Time spent together. | Both / From–to |
 | Date (`date`) | On a date involving a Meal, Coffee, Walk, or Outing at that instant. | Time spent on that occasion. The activity name is not a calendar-date input. | Both / From–to |
@@ -179,7 +180,7 @@ Policies cover every existing detail under an activity. Broad activities with mi
 
 ## Implementation and compatibility
 
-- `ActivityOption` requires an explicit `ActivityTimePolicy` for every entry. The custom default must be one of the supported modes.
+- `ActivityOption` requires an explicit `ActivityTimePolicy` for every entry. The custom default must be one of the supported modes. Details may be empty.
 - The Custom editor shows a selector only when both modes are supported. Single-mode activities show their mode and the appropriate fields. Restored editor drafts are constrained to the current policy.
 - `ActivityTime.selectionError` is shared by the editor and the final send-button handler. A stale or restored range for an At-only activity is rejected before storing or posting a new activity. A partial custom range is not silently turned into Live.
 - Live always stays an instant, including for the policy model's currently unused From–to-only case. Custom capabilities describe explicit historical input; they do not change Live semantics.
@@ -189,6 +190,6 @@ Policies cover every existing detail under an activity. Broad activities with mi
 
 ## Verification
 
-Catalog tests lock the eight At-only decisions, require supported defaults, retain all 100 distinct activities/icons, and cover mixed-use details. Time-selection tests reject stale forbidden modes, missing range fields, and invalid times while preserving Live for every catalog entry. Phone UI tests cover all eight At-only entries, both-mode editing, Drink's At default with range support, cancellation, recreation, and switching back to Live. Device UI tests edit drafts without publishing activities.
+Catalog tests lock the nine At-only decisions, require supported defaults, retain all 100 distinct activities/icons, verify the simple no-detail activities and Social call placement, and cover mixed-use details. Time-selection tests reject stale forbidden modes, missing range fields, and invalid times while preserving Live for every catalog entry. Phone UI tests cover the Location live-only path, the At-only entries, optional-detail reset, cancellation, recreation, and switching back to Live. Device UI tests edit drafts without publishing activities.
 
 Release validation for 1.3.5 passed: unit tests, debug and preview lint, the optimized APK build, and all five phone UI tests. An additional SQLite/wire regression test confirmed that a Location range from an older client still loads with its exact original times, even though the new composer rejects that shape. The opt-in real-relay round-trip test was skipped; no backend or wire-schema change was made. A separate coverage check matched all 100 audit rows, policies, and custom defaults to the catalog.

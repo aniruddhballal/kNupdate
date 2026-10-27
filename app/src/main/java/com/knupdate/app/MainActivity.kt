@@ -368,7 +368,7 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
     var loadError by remember { mutableStateOf<String?>(null) }
     var selectedActivityId by rememberSaveable { mutableStateOf(ACTIVITY_OPTIONS.first().id) }
     var selectedGroupId by rememberSaveable { mutableStateOf(ACTIVITY_GROUPS.first().id) }
-    var selectedBody by rememberSaveable { mutableStateOf(ACTIVITY_OPTIONS.first().bodies.first()) }
+    var selectedBody by rememberSaveable { mutableStateOf<String?>(null) }
     var customStartAt by rememberSaveable { mutableStateOf<Long?>(null) }
     var customEndAt by rememberSaveable { mutableStateOf<Long?>(null) }
     var isRange by rememberSaveable { mutableStateOf(ACTIVITY_OPTIONS.first().defaultIsRange) }
@@ -376,26 +376,25 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
     var updateButtonSuccess by rememberSaveable { mutableStateOf(false) }
     var lastSentId by rememberSaveable { mutableStateOf<String?>(null) }
     var showCustomTime by rememberSaveable { mutableStateOf(false) }
-    var shareCoordinates by rememberSaveable { mutableStateOf(false) }
     var showReceivingOptions by rememberSaveable { mutableStateOf(false) }
     var showListeners by rememberSaveable { mutableStateOf(false) }
     var locationBeaconRequested by remember { mutableStateOf(LocationBeacon.requested(context)) }
     var locationBeaconActive by remember { mutableStateOf(LocationBeacon.active(context)) }
     val selectedActivity = ACTIVITY_OPTIONS.firstOrNull { it.id == selectedActivityId } ?: ACTIVITY_OPTIONS.first()
     val selectedGroup = ACTIVITY_GROUPS.firstOrNull { it.id == selectedGroupId } ?: ACTIVITY_GROUPS.first()
-    val coordinateMode = selectedActivityId == "location" && shareCoordinates
+    val coordinateMode = selectedActivityId == "location"
     val lastSent = updates.firstOrNull { it.id == lastSentId }
 
     fun selectActivity(id: String) {
         if (id == selectedActivityId) return
         val activity = ACTIVITY_OPTIONS.first { it.id == id }
         selectedActivityId = id
-        selectedBody = activity.bodies.first()
+        selectedBody = null
         isRange = activity.defaultIsRange
         customStartAt = null
         customEndAt = null
         timeError = null
-        shareCoordinates = false
+        showCustomTime = false
     }
 
     fun startReceiving() {
@@ -461,13 +460,9 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         startReceiving()
     }
-    val locationNotificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     val locationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         if (LocationCapture.permitted(context)) {
-            shareCoordinates = true
             timeError = null
-            if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
-                locationNotificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else timeError = "Allow location in Android app settings to share coordinates."
     }
 
@@ -492,7 +487,7 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
         if (showInbox) { tab = "Inbox"; onInboxOpened() }
     }
     LaunchedEffect(selectedActivityId) {
-        if (selectedBody !in selectedActivity.bodies) selectedBody = selectedActivity.bodies.first()
+        if (selectedBody != null && selectedBody !in selectedActivity.bodies) selectedBody = null
     }
     LaunchedEffect(lastSent?.status) {
         if (lastSent?.status == "sent") { updateButtonSuccess = true; delay(850); updateButtonSuccess = false }
@@ -502,11 +497,13 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
         val pressedAt = ActivityTime.now()
         if (!ready || sending) return
         if (RelaySettings.url().isBlank()) { receiverError = "Unavailable"; return }
-        if (selectedBody !in selectedActivity.bodies) return
-        timeError = ActivityTime.selectionError(selectedActivity.timePolicy, customStartAt, customEndAt, pressedAt, coordinateMode)
+        if (selectedBody != null && selectedBody !in selectedActivity.bodies) return
+        val draftStartAt = if (coordinateMode) null else customStartAt
+        val draftEndAt = if (coordinateMode) null else customEndAt
+        timeError = ActivityTime.selectionError(selectedActivity.timePolicy, draftStartAt, draftEndAt, pressedAt, coordinateMode)
         if (timeError != null) return
-        val selectedTime = ActivityTime.resolve(customStartAt, customEndAt, pressedAt)
-        val live = customStartAt == null
+        val selectedTime = ActivityTime.resolve(draftStartAt, draftEndAt, pressedAt)
+        val live = draftStartAt == null
         if (coordinateMode) {
             if (locationActive) { timeError = "A location send is already pending. Cancel it before scheduling another."; return }
             if (!LocationCapture.permitted(context)) {
@@ -521,7 +518,7 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
                 catch (_: Exception) { timeError = "Enable Alarms & reminders in Android app settings, or use Live." }
                 return
             }
-            val update = ActivityRecord(title = selectedActivity.title, body = selectedBody, startAt = at, endAt = null, status = "scheduled")
+            val update = ActivityRecord(title = selectedActivity.title, body = selectedBody.orEmpty(), startAt = at, endAt = null, status = "scheduled")
             try {
                 if (LocationSendService.schedule(context, update)) { lastSentId = update.id; timeError = null }
             } catch (_: Exception) { timeError = "Could not start location sharing. Keep the app open and check location permission." }
@@ -539,7 +536,7 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
                 return
             }
         }
-        val update = ActivityRecord(title = selectedActivity.title, body = selectedBody,
+        val update = ActivityRecord(title = selectedActivity.title, body = selectedBody.orEmpty(),
             startAt = selectedTime.startAt, endAt = selectedTime.endAt)
         lastSentId = update.id
         timeError = null
@@ -587,30 +584,29 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
                 item(key = "selected-title", contentType = "title") {
                     Text(selectedActivity.title, color = Ink, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                 }
-                if (selectedActivityId == "location") item(key = "share-coordinates", contentType = "location") {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ChoiceRow(listOf("Description only", "Share coordinates"), if (coordinateMode) "Share coordinates" else "Description only") { choice ->
-                            timeError = null
-                            customStartAt = null; customEndAt = null
-                            if (choice == "Description only") shareCoordinates = false
-                            else if (LocationCapture.permitted(context)) {
-                                shareCoordinates = true
-                                if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
-                                    locationNotificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                            } else locationPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+                if (selectedActivityId == "location") item(key = "location-mode", contentType = "location") {
+                    Text("Coordinates are always shared. The timestamp is captured live when you tap kNupdate.", color = Muted, fontSize = 12.sp)
+                }
+                if (selectedActivity.bodies.isNotEmpty()) {
+                    item(key = "detail-label", contentType = "section") { SectionLabel("DETAIL (OPTIONAL)") }
+                    items((listOf(NO_ACTIVITY_DETAIL) + selectedActivity.bodies).chunked(2), key = { "detail-${selectedActivity.id}-${it.first()}" }, contentType = { "detail-row" }) { row ->
+                        ChoiceRow(row, selectedBody ?: NO_ACTIVITY_DETAIL) {
+                            selectedBody = if (it == NO_ACTIVITY_DETAIL) null else it
                         }
-                        if (coordinateMode) Text("One fresh snapshot when you tap kNupdate. Use Custom to schedule a future time. Scheduled sends need Alarms & reminders access. Keep phone location on.", color = Muted, fontSize = 12.sp)
                     }
                 }
-                item(key = "detail-label", contentType = "section") { SectionLabel("DETAIL") }
-                items(selectedActivity.bodies.chunked(2), key = { "detail-${selectedActivity.id}-${it.first()}" }, contentType = { "detail-row" }) { row ->
-                    ChoiceRow(row, selectedBody) { selectedBody = it }
-                }
-                item(key = "time-label", contentType = "section") { SectionLabel("TIME") }
-                item(key = "time-controls", contentType = "time") {
-                    ActivityTimeControls(customStartAt, customEndAt,
-                        onCustom = { showCustomTime = true },
-                        onLive = { customStartAt = null; customEndAt = null; timeError = null })
+                if (selectedActivityId == "location") {
+                    item(key = "location-time", contentType = "time") {
+                        SectionLabel("TIME")
+                        Text("Live now", color = Ink, fontSize = 15.sp)
+                    }
+                } else {
+                    item(key = "time-label", contentType = "section") { SectionLabel("TIME") }
+                    item(key = "time-controls", contentType = "time") {
+                        ActivityTimeControls(customStartAt, customEndAt,
+                            onCustom = { showCustomTime = true },
+                            onLive = { customStartAt = null; customEndAt = null; timeError = null })
+                    }
                 }
                 timeError?.let { error -> item(key = "time-error", contentType = "feedback") { Text(error, color = Color(0xFFB3261E), fontSize = 13.sp) } }
                 item(key = "send", contentType = "send") {
@@ -622,7 +618,7 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
             }
         }
     }
-    if (showCustomTime) {
+    if (showCustomTime && selectedActivityId != "location") {
         CustomTimeDialog(customStartAt, customEndAt, isRange, selectedActivity.timePolicy, coordinateMode,
             onDismiss = { showCustomTime = false },
             onConfirm = { start, end, range ->
@@ -663,7 +659,7 @@ private fun HistoryList(records: List<ActivityRecord>) {
         items(records, key = { it.id }) { record ->
             Column(modifier = Modifier.fillMaxWidth().border(1.dp, Rule).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(record.title, color = Ink, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                Text(record.body, color = Ink, fontSize = 15.sp)
+                if (record.body.isNotBlank()) Text(record.body, color = Ink, fontSize = 15.sp)
                 record.coordinates?.let { fix ->
                     Text(fix.text(), color = Ink, fontSize = 14.sp)
                     Text("Captured ${ActivityTime.text(fix.capturedAt, ZoneId.of(record.timeZone), includeDate = true)}", color = Muted, fontSize = 12.sp)
