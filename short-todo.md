@@ -1,3 +1,0 @@
-1. therapy icon is weird. meal prep icon is weird.  
-2. words like "appointment" and "fuel/charge" wrap into two lines - can check in phone via adb in respective screen.
-3. remove the word "live" thats displayed in the button that shows the current time. also, why does the current location time section say "live now" instead of the "live with the actual time in hh:mm:ss"? i need that uniformity - yes i told that the time cannot be modified, thats true. but display wise it should be the same as the rest, just that custom button goes away. dont show "live" as a word in that button ever though.
