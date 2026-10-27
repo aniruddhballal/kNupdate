@@ -71,6 +71,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -91,6 +92,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Surface
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.Dispatchers
@@ -109,6 +113,7 @@ private val Muted = Color(0xFF555555)
 private val Rule = Color(0xFFDDDDDD)
 private val ActiveRow = Color(0xFFF2F2F2)
 private val TimeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
+private val LiveTimeFormatter = DateTimeFormatter.ofPattern("h:mm:ss a", Locale.ENGLISH)
 
 class MainActivity : ComponentActivity() {
     private val inboxRequested = mutableStateOf(false)
@@ -326,19 +331,17 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
     var receiverError by rememberSaveable { mutableStateOf<String?>(null) }
     var ready by remember { mutableStateOf(false) }
     var loadError by remember { mutableStateOf<String?>(null) }
-    val defaultTime = remember { ActivityTime.now() }
     var selectedActivityId by rememberSaveable { mutableStateOf(ACTIVITY_OPTIONS.first().id) }
     var selectedGroupId by rememberSaveable { mutableStateOf(ACTIVITY_GROUPS.first().id) }
     var selectedBody by rememberSaveable { mutableStateOf(ACTIVITY_OPTIONS.first().bodies.first()) }
-    var startAt by rememberSaveable { mutableStateOf(defaultTime) }
-    var endAt by rememberSaveable { mutableStateOf(defaultTime) }
+    var customStartAt by rememberSaveable { mutableStateOf<Long?>(null) }
+    var customEndAt by rememberSaveable { mutableStateOf<Long?>(null) }
     var isRange by rememberSaveable { mutableStateOf(ACTIVITY_OPTIONS.first().isRange) }
     var timeError by rememberSaveable { mutableStateOf<String?>(null) }
     var updateButtonSuccess by rememberSaveable { mutableStateOf(false) }
     var lastSentId by rememberSaveable { mutableStateOf<String?>(null) }
-    var timePickerIsStart by remember { mutableStateOf<Boolean?>(null) }
+    var showCustomTime by rememberSaveable { mutableStateOf(false) }
     var shareCoordinates by rememberSaveable { mutableStateOf(false) }
-    var locationNow by rememberSaveable { mutableStateOf(true) }
     val selectedActivity = ACTIVITY_OPTIONS.firstOrNull { it.id == selectedActivityId } ?: ACTIVITY_OPTIONS.first()
     val selectedGroup = ACTIVITY_GROUPS.firstOrNull { it.id == selectedGroupId } ?: ACTIVITY_GROUPS.first()
     val coordinateMode = selectedActivityId == "location" && shareCoordinates
@@ -350,11 +353,10 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
         selectedActivityId = id
         selectedBody = activity.bodies.first()
         isRange = activity.isRange
-        startAt = ActivityTime.now()
-        endAt = startAt
+        customStartAt = null
+        customEndAt = null
         timeError = null
         shareCoordinates = false
-        locationNow = true
     }
 
     fun startReceiving() {
@@ -370,8 +372,6 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
     val locationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         if (LocationCapture.permitted(context)) {
             shareCoordinates = true
-            locationNow = true
-            startAt = ActivityTime.now()
             timeError = null
             if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
                 locationNotificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -402,8 +402,11 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
     }
 
     fun saveUpdate() {
+        val pressedAt = ActivityTime.now()
         if (!ready || sending) return
         if (RelaySettings.url().isBlank()) { receiverError = "Unavailable"; return }
+        val selectedTime = ActivityTime.resolve(customStartAt, customEndAt, pressedAt)
+        val live = customStartAt == null
         if (coordinateMode) {
             if (locationActive) { timeError = "A location send is already pending. Cancel it before scheduling another."; return }
             if (!LocationCapture.permitted(context)) {
@@ -411,12 +414,12 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
                 return
             }
             if (!LocationCapture.enabled(context)) { timeError = "Turn on your phone's location, then tap kNupdate again."; return }
-            val at = if (locationNow) ActivityTime.now() else startAt
-            if (!locationNow && at <= ActivityTime.now()) { timeError = "Choose a future time or tap Now."; return }
-            if (!locationNow && Build.VERSION.SDK_INT >= 31 && !context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()) {
-                timeError = "Allow Alarms & reminders, then return and tap kNupdate again. Or tap Now to send immediately."
+            val at = selectedTime.startAt
+            if (!live && at <= pressedAt) { timeError = "Choose a future time or use Live."; return }
+            if (!live && Build.VERSION.SDK_INT >= 31 && !context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()) {
+                timeError = "Allow Alarms & reminders, then return and tap kNupdate again. Or use Live to send immediately."
                 try { context.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${context.packageName}"))) }
-                catch (_: Exception) { timeError = "Enable Alarms & reminders in Android app settings, or tap Now." }
+                catch (_: Exception) { timeError = "Enable Alarms & reminders in Android app settings, or use Live." }
                 return
             }
             val update = ActivityRecord(title = selectedActivity.title, body = selectedBody, startAt = at, endAt = null, status = "scheduled")
@@ -425,12 +428,11 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
             } catch (_: Exception) { timeError = "Could not start location sharing. Keep the app open and check location permission." }
             return
         }
-        val selectedEnd = if (isRange) endAt else null
         if (selectedBody !in selectedActivity.bodies) return
-        timeError = ActivityTime.error(startAt, selectedEnd, ActivityTime.now())
+        timeError = ActivityTime.error(selectedTime.startAt, selectedTime.endAt, pressedAt)
         if (timeError != null) return
         val update = ActivityRecord(title = selectedActivity.title, body = selectedBody,
-            startAt = startAt, endAt = selectedEnd)
+            startAt = selectedTime.startAt, endAt = selectedTime.endAt)
         lastSentId = update.id
         timeError = null
         SendCoordinator.send(context, update)
@@ -470,14 +472,15 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         ChoiceRow(listOf("Description only", "Share coordinates"), if (coordinateMode) "Share coordinates" else "Description only") { choice ->
                             timeError = null
+                            customStartAt = null; customEndAt = null
                             if (choice == "Description only") shareCoordinates = false
                             else if (LocationCapture.permitted(context)) {
-                                shareCoordinates = true; locationNow = true; startAt = ActivityTime.now()
+                                shareCoordinates = true
                                 if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
                                     locationNotificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                             } else locationPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
                         }
-                        if (coordinateMode) Text("One fresh snapshot at the selected time, sent to all active listeners. Tap Now to send immediately. Scheduled sends need Alarms & reminders access. Keep phone location on.", color = Muted, fontSize = 12.sp)
+                        if (coordinateMode) Text("One fresh snapshot when you tap kNupdate. Use Custom to schedule a future time. Scheduled sends need Alarms & reminders access. Keep phone location on.", color = Muted, fontSize = 12.sp)
                     }
                 }
                 item(key = "detail-label", contentType = "section") { SectionLabel("DETAIL") }
@@ -485,16 +488,10 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
                     ChoiceRow(row, selectedBody) { selectedBody = it }
                 }
                 item(key = "time-label", contentType = "section") { SectionLabel("TIME") }
-                if (!coordinateMode) item(key = "time-mode", contentType = "mode") { TimeModeSelector(isRange) { isRange = it; timeError = null } }
-                item(key = "start-time", contentType = "time") {
-                    TimestampField(if (coordinateMode && locationNow) "Send now" else if (!coordinateMode && isRange) "From" else "At", startAt,
-                        onEdit = { timePickerIsStart = true },
-                        onNow = { startAt = ActivityTime.now(); locationNow = true; timeError = null })
-                }
-                if (isRange && !coordinateMode) item(key = "end-time", contentType = "time") {
-                    TimestampField("To", endAt,
-                        onEdit = { timePickerIsStart = false },
-                        onNow = { endAt = ActivityTime.now(); timeError = null })
+                item(key = "time-controls", contentType = "time") {
+                    ActivityTimeControls(customStartAt, customEndAt,
+                        onCustom = { showCustomTime = true },
+                        onLive = { customStartAt = null; customEndAt = null; timeError = null })
                 }
                 timeError?.let { error -> item(key = "time-error", contentType = "feedback") { Text(error, color = Color(0xFFB3261E), fontSize = 13.sp) } }
                 item(key = "send", contentType = "send") {
@@ -506,16 +503,12 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
             }
         }
     }
-    timePickerIsStart?.let { isStart ->
-        val zone = ZoneId.systemDefault()
-        val timestamp = if (isStart) startAt else endAt
-        val selectedDate = ActivityTime.date(timestamp, zone)
-        KNTimePickerDialog(ActivityTime.minutes(timestamp, zone), selectedDate, allowFuture = coordinateMode,
-            onDismiss = { timePickerIsStart = null },
-            onConfirm = { chosen ->
-                val manualTime = ActivityTime.manual(selectedDate, chosen, zone)
-                if (isStart) { startAt = manualTime; locationNow = false } else endAt = manualTime
-                timeError = null; timePickerIsStart = null
+    if (showCustomTime) {
+        CustomTimeDialog(customStartAt, customEndAt, isRange, coordinateMode,
+            onDismiss = { showCustomTime = false },
+            onConfirm = { start, end, range ->
+                customStartAt = start; customEndAt = end; isRange = range
+                timeError = null; showCustomTime = false
             })
     }
 }
@@ -555,6 +548,66 @@ private fun HistoryList(records: List<ActivityRecord>) {
 }
 
 @Composable
+private fun CustomTimeDialog(
+    initialStart: Long?,
+    initialEnd: Long?,
+    initialIsRange: Boolean,
+    coordinates: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: (Long, Long?, Boolean) -> Unit
+) {
+    var start by rememberSaveable { mutableStateOf(initialStart) }
+    var end by rememberSaveable { mutableStateOf(initialEnd) }
+    var range by rememberSaveable { mutableStateOf(initialIsRange && !coordinates) }
+    var editingStart by rememberSaveable { mutableStateOf<Boolean?>(null) }
+    var pickerReference by rememberSaveable { mutableStateOf<Long?>(null) }
+    var error by rememberSaveable { mutableStateOf<String?>(null) }
+
+    fun edit(isStart: Boolean) {
+        pickerReference = (if (isStart) start else end) ?: ActivityTime.now()
+        editingStart = isStart
+    }
+
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(Modifier.fillMaxWidth().padding(horizontal = 20.dp).testTag("custom-time-dialog"),
+            color = Paper, shape = RectangleShape, border = BorderStroke(1.dp, Ink)) {
+            Column(Modifier.heightIn(max = 600.dp).verticalScroll(rememberScrollState()).padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                SectionLabel("CUSTOM TIME")
+                if (!coordinates) TimeModeSelector(range) { range = it; error = null }
+                TimestampField(if (range) "From" else "At", start, onEdit = { edit(true) })
+                if (range) TimestampField("To", end, onEdit = { edit(false) })
+                error?.let { Text(it, color = Color(0xFFB3261E), fontSize = 13.sp) }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    TimeButton("CANCEL", onDismiss, Modifier.weight(1f))
+                    BlackButton("USE TIME", enabled = start != null && (!range || end != null),
+                        onClick = {
+                            val selectedStart = start ?: return@BlackButton
+                            val selectedEnd = if (range) end else null
+                            error = if (coordinates) {
+                                if (selectedStart <= ActivityTime.now()) "Choose a future time or use Live." else null
+                            } else ActivityTime.error(selectedStart, selectedEnd, ActivityTime.now())
+                            if (error == null) onConfirm(selectedStart, selectedEnd, range)
+                        }, modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+    editingStart?.let { isStart ->
+        val timestamp = pickerReference ?: ActivityTime.now()
+        val zone = ZoneId.systemDefault()
+        val date = ActivityTime.date(timestamp, zone)
+        KNTimePickerDialog(ActivityTime.minutes(timestamp, zone), date, allowFuture = coordinates,
+            onDismiss = { editingStart = null },
+            onConfirm = { minutes ->
+                val selected = ActivityTime.manual(date, minutes, zone)
+                if (isStart) start = selected else end = selected
+                error = null; editingStart = null
+            })
+    }
+}
+
+@Composable
 private fun KNTimePickerDialog(
     initialMinutes: Int,
     date: LocalDate,
@@ -566,8 +619,8 @@ private fun KNTimePickerDialog(
     val maxHour = nowLimit / 60
     val maxMinute = nowLimit % 60
     val safeInitial = initialMinutes.coerceIn(0, nowLimit)
-    var selectedHour by remember { mutableStateOf(safeInitial / 60) }
-    var selectedMinute by remember { mutableStateOf(safeInitial % 60) }
+    var selectedHour by rememberSaveable { mutableStateOf(safeInitial / 60) }
+    var selectedMinute by rememberSaveable { mutableStateOf(safeInitial % 60) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -576,7 +629,7 @@ private fun KNTimePickerDialog(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp),
+                .padding(horizontal = 20.dp).testTag("time-picker-dialog"),
             color = Paper,
             shape = RectangleShape,
             border = BorderStroke(1.dp, Ink)
@@ -676,6 +729,7 @@ private fun TimeValuePicker(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(180.dp)
+                .testTag("time-value-${label.lowercase(Locale.ENGLISH)}")
                 .border(1.dp, Rule, RectangleShape),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -783,14 +837,46 @@ private fun TimeModeSelector(isRange: Boolean, onSelect: (Boolean) -> Unit) {
 }
 
 @Composable
-private fun TimestampField(label: String, timestamp: Long, onEdit: () -> Unit, onNow: () -> Unit) {
+private fun TimestampField(label: String, timestamp: Long?, onEdit: () -> Unit, modifier: Modifier = Modifier) {
     val zone = ZoneId.systemDefault()
-    val includeDate = ActivityTime.date(timestamp, zone) != LocalDate.now(zone)
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        TimeButton("$label  ${ActivityTime.text(timestamp, zone, includeDate)}", onEdit,
-            Modifier.weight(1f).semantics { contentDescription = "$label selected time" })
-        TimeButton("Now", onNow, Modifier.width(72.dp).semantics { contentDescription = "$label current time" })
+    val text = timestamp?.let { ActivityTime.text(it, zone, ActivityTime.date(it, zone) != LocalDate.now(zone)) } ?: "Choose time"
+    TimeButton("$label  $text", onEdit, modifier.fillMaxWidth().semantics { contentDescription = "$label selected time" })
+}
+
+@Composable
+private fun ActivityTimeControls(start: Long?, end: Long?, onCustom: () -> Unit, onLive: () -> Unit) {
+    if (start == null) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            LiveTimeField(onCustom, Modifier.weight(1f))
+            TimeButton("Custom", onCustom, Modifier.width(88.dp).semantics { contentDescription = "Set custom time" })
+        }
+    } else Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            TimestampField(if (end == null) "At" else "From", start, onCustom, Modifier.weight(1f))
+            TimeButton("Live", onLive, Modifier.width(88.dp).semantics { contentDescription = "Use live time" })
+        }
+        if (end != null) TimestampField("To", end, onCustom)
     }
+}
+
+/** Only this visible clock recomposes each second; its value is never used to create a send. */
+@Composable
+private fun LiveTimeField(onCustom: () -> Unit, modifier: Modifier = Modifier) {
+    var timestamp by remember { mutableStateOf(ActivityTime.now()) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                timestamp = ActivityTime.now()
+                delay(1_000L - timestamp % 1_000L)
+            }
+        }
+    }
+    val time = Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault()).format(LiveTimeFormatter)
+    TimeButton("Live  $time", onCustom, modifier.semantics {
+        contentDescription = "Live current time"
+        stateDescription = "Uses the time kNupdate is pressed"
+    })
 }
 
 @Composable

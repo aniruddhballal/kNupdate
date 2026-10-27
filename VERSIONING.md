@@ -41,6 +41,8 @@ The activity catalog/grid and exact-time controls were first built as **1.2.0 (c
 
 **1.3.3 (code 15)** points the app to the owner's deployed `aniruddhballaldeeksha.workers.dev` relay. The previous `quiet-airport` relay still rejected coordinate payloads. Sender and listener phones need this updated APK; upgrading preserves local history.
 
+**1.3.4 (code 16)** corrects stale Now timestamps with a ticking Live default that captures time only when kNupdate is pressed. Custom timestamps and ranges are optional, and Live clears them. No relay deployment or wire-schema change is required.
+
 Every normal app APK/AAB build reserves the next patch version and increments versionCode once per Gradle invocation. Debug, preview and release variants in the same invocation share that reservation. This includes full `build`, `assemble`, `bundle`, `package` and `install` artifact tasks, including Android Studio's normal `:app:assembleDebug` invocation. Use complete task names rather than abbreviations.
 
 ```powershell

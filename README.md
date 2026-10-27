@@ -6,7 +6,7 @@ The app displays its version beside `kN`. Android metadata and the UI share `ver
 
 ## Behavior
 
-1. Choose a group, an activity from its icon grid, a predefined detail, and a time or time range. `Run / 5k` is included.
+1. Choose a group, an activity from its icon grid, and a predefined detail. Time defaults to **Live**, captured when **kNupdate** is pressed; **Custom** optionally selects a timestamp or range. `Run / 5k` is included.
 2. Sending commits a copy to the phone's SQLite history before posting the activity to the relay. The local display name is never included.
 3. Receiving uses a user-started foreground service with a persistent notification and 25-second HTTP long polls. A response returns immediately when an update arrives.
    Turning the header switch off, or choosing **Stop receiving** in the notification, immediately clears the local receiving state and invalidates callbacks from that receiver run. Closing the old network connection and notifying the relay happen separately, so a failed or pending poll cannot change the stopped state back to retrying.
@@ -17,7 +17,7 @@ The app displays its version beside `kN`. Android metadata and the UI share `ver
 
 ## Optional location coordinates
 
-Choose **Everyday → Location → Share coordinates**, grant Android location permission, keep the phone's location switched on, then choose a time and tap **kNupdate**. **Now** requests an immediate snapshot. The manual time picker allows a future time today for this mode. Description-only location updates and all other activities keep their existing past-time behavior. Coordinate snapshots use one timestamp, not a range.
+Choose **Everyday → Location → Share coordinates**, grant Android location permission, keep the phone's location switched on, then tap **kNupdate**. The default **Live** mode starts a fresh snapshot request when kNupdate is pressed. **Custom** optionally selects a future time today. Description-only location updates and all other activities allow past custom times. Coordinate snapshots use one timestamp, not a range.
 
 The phone waits locally and requests a fresh location fix only when the selected time arrives. It sends latitude, longitude, reported accuracy in meters, and capture time to the listeners active when the POST reaches the relay. Android's approximate permission is supported; coordinates may then be less precise. There is no continuous location subscription while waiting, no last-known-location fallback, and no map or map service dependency.
 
@@ -48,11 +48,11 @@ The app includes 100 predefined activities across ten groups. Both activity and 
 | Errands | Shop, Groceries, Collect, Delivery, Appointment, Bank, Post office, Fuel / charge, Queue, Haircut |
 | Wellbeing | Meditate, Breathe, Journal, Pray, Health visit, Therapy, Self-care, Recover, Medicine, Check-in |
 
-**At** means one timestamp. Location, Wake up, Drink, Arrived, Departed, Collect, Delivery, Medicine and Check-in default to this. All remaining activities default to **From–to**, including meals, work, study, exercise, travel and sleep. Either mode can be selected for any activity: for example, use At to announce that a run is starting, or From–to to report the completed run. The app rejects future timestamps and ranges whose end is not after the start.
+Every activity starts in **Live** mode, with no timestamp or range stored in the draft. A ticking clock appears just above kNupdate with a **Custom** button beside it. Pressing kNupdate captures the device clock at that instant, including seconds and milliseconds, and sends one timestamp. This remains true if the composer has been open for minutes or across midnight. The displayed clock is only a preview; it is never reused as the send time. Only the visible clock updates each second, and ticking pauses when the activity is no longer started.
 
-Each time field has its own **Now** button. It captures the device clock at the instant of the tap, including seconds and milliseconds; the value stays fixed until changed. Initial time values also capture the clock when the composer opens or a different activity is chosen. Opening the manual picker and confirming a time instead sets seconds and milliseconds to zero. Exact values pass through the relay and both local histories unchanged; times with sub-minute precision display seconds, while whole-minute times display hours and minutes.
+Tap **Custom** or the live clock to open the time editor. **At** means one timestamp; **From–to** requires both a start and an end. Location, Wake up, Drink, Arrived, Departed, Collect, Delivery, Medicine and Check-in default to At inside this editor; remaining activities default to From–to. Either mode can be selected for ordinary activities. Coordinate sharing supports At only, for future scheduling. Ordinary custom times must be in the past, and range end must be after start. Opening and cancelling the editor leaves the original draft unchanged; times apply only after **Use time**.
 
-Times retain their selected date, even if midnight passes before sending. The manual picker edits that field's existing date, displayed in its heading; use Now to switch a field to the current date. A previous day's field shows its date in the composer. These controls can represent an overnight range by setting the start before midnight and the end after it, without silently moving the start to another day. There is no general date picker.
+Custom times remain fixed until edited or cleared using **Live**, which restores the ticking clock and clears both custom fields. Changing activity also resets time to Live. There are no Now buttons. Manual input uses minute precision, setting seconds and milliseconds to zero, and retains the date captured when that field's picker opened. There is no general date picker. Custom drafts survive recreation and scrolling. Exact values pass through the relay and local histories unchanged; history times with sub-minute precision display seconds, while whole-minute times display hours and minutes.
 
 ## Scrolling and visual consistency
 
@@ -192,7 +192,7 @@ These HTTP integration tests create real concurrent long polls, test independent
 
 For a debug emulator, use `http://10.0.2.2:8787`. For a USB-connected phone, run `adb reverse tcp:8787 tcp:8787` and use `http://127.0.0.1:8787`. To test phones on a trusted LAN, start Wrangler with `npx wrangler dev --ip 0.0.0.0`, allow the development port through the local firewall, and use the computer's local IP address.
 
-Android unit tests verify the fixed catalog, event/duration defaults, exact current-time capture, manual minute precision, midnight and range validation, plus Robolectric checks for SQLite persistence across reopening, receive deduplication, interrupted-send status, legacy migration, uncapped history, network field allowlisting, timestamp validation, and relay URL validation. An opt-in Robolectric round-trip test also uses the actual Android HTTP client and three separate SQLite databases against a real relay. Run it against an otherwise unused endpoint:
+Android unit tests verify the fixed catalog, custom event/duration defaults, exact button-press time capture after waiting across midnight, fixed custom timestamps/ranges, manual minute precision, midnight and range validation, plus Robolectric checks for SQLite persistence across reopening, receive deduplication, interrupted-send status, legacy migration, uncapped history, network field allowlisting, timestamp validation, and relay URL validation. An opt-in Robolectric round-trip test also uses the actual Android HTTP client and three separate SQLite databases against a real relay. Run it against an otherwise unused endpoint:
 
 ```powershell
 $env:RELAY_TEST_URL = "http://127.0.0.1:8787"
@@ -201,11 +201,13 @@ $env:RELAY_TEST_URL = "http://127.0.0.1:8787"
 
 It verifies a sender's local copy, two concurrent recipients, persistence before acknowledgement, duplicate suppression after reopening, and deletion after the second acknowledgement. Physical-device screen-off and battery-policy behavior still requires testing on real devices.
 
-The composer also has physical-device UI tests. They edit drafts without posting: checking category/activity selection, mode overrides, both Now labels fitting on one line, manual versus exact precision, and draft preservation through recreation and repeated scrolling. After building/installing the app and test APK:
+The composer also has physical-device UI tests. They edit drafts without posting: checking the ticking Live clock, custom mode defaults and overrides, both range fields being required, cancellation without changing Live, return to Live, and custom draft preservation through recreation and repeated scrolling. After building/installing the app and test APK:
 
 ```powershell
 adb shell am instrument -w -r -e class com.knupdate.app.ActivityComposerTest com.knupdate.app.test/androidx.test.runner.AndroidJUnitRunner
 ```
+
+On 27 October 2026, all three composer UI tests passed on the connected phone with the 1.3.4 debug build. The Live clock ticked, custom values survived recreation and scrolling, incomplete ranges could not be applied, and cancelling or returning to Live left no frozen default timestamp. These checks did not publish activities.
 
 On 26 October 2026, an ADB-connected Android 15 phone running the committed APK passed a short background-receiving check against the live relay. It received a labelled synthetic update and posted a notification with the app in the background. A temporary second listener withheld acknowledgement; the relay retained the update until its acknowledgement, then the public pending list became empty within approximately 0.4 seconds. This does not establish long-term screen-off or Doze reliability.
 

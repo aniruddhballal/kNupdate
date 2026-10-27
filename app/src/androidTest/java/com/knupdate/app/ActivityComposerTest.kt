@@ -1,11 +1,9 @@
 package com.knupdate.app
 
 import android.content.SharedPreferences
-import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
-import androidx.compose.ui.text.TextLayoutResult
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.After
@@ -13,6 +11,7 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import java.time.LocalTime
 
 /** Edits drafts only: never sends an activity or changes existing history. */
 class ActivityComposerTest {
@@ -53,61 +52,91 @@ class ActivityComposerTest {
     private fun text(description: String): String = scrollTo(hasContentDescription(description))
         .fetchSemanticsNode().config[SemanticsProperties.Text].joinToString { it.text }
 
-    @Test fun nowAndManualTimesRetainTheirPrecisionAcrossRecreation() {
+    @Test fun liveClockTicksAndCustomTimeSurvivesRecreationUntilLiveIsSelected() {
+        val live = text("Live current time")
+        assertTrue(live.matches(Regex("Live  \\d{1,2}:\\d{2}:\\d{2} [AP]M")))
+        compose.mainClock.autoAdvance = false
+        try {
+            Thread.sleep(1_200)
+            compose.mainClock.advanceTimeBy(1_500)
+            compose.waitForIdle()
+            assertNotEquals(live, text("Live current time"))
+        } finally { compose.mainClock.autoAdvance = true }
+
         scrollTo(hasText("Eat")).performClick()
-        scrollTo(hasText("From–to")).assertIsSelected()
-        scrollTo(hasContentDescription("From current time")).performClick()
-        val exact = text("From selected time")
-        assertTrue(exact.matches(Regex("From  \\d{1,2}:\\d{2}:\\d{2} [AP]M")))
+        scrollTo(hasContentDescription("Set custom time")).performClick()
+        compose.onNodeWithText("From–to").assertIsSelected()
+        compose.onNodeWithText("At").performClick()
+        compose.onNodeWithContentDescription("At selected time").performClick()
+        compose.onNodeWithText("OK").performClick()
+        compose.onNodeWithText("USE TIME").performClick()
+        val manual = text("At selected time")
+        assertTrue(manual.matches(Regex("At  \\d{1,2}:\\d{2} [AP]M")))
         scenario.recreate()
         compose.waitForIdle()
-        assertEquals(exact, text("From selected time"))
-        scrollTo(hasContentDescription("From selected time")).performClick()
-        compose.onNodeWithText("OK").performClick()
-        assertTrue(text("From selected time").matches(Regex("From  \\d{1,2}:\\d{2} [AP]M")))
-        scrollTo(hasContentDescription("From current time")).performClick()
-        assertTrue(text("From selected time").matches(Regex("From  \\d{1,2}:\\d{2}:\\d{2} [AP]M")))
+        assertEquals(manual, text("At selected time"))
+        scrollTo(hasContentDescription("Use live time")).performClick()
+        scrollTo(hasContentDescription("Live current time")).assertExists()
+        compose.onNodeWithContentDescription("At selected time").assertDoesNotExist()
     }
 
-    @Test fun gridModesAndBothNowLabelsFitWithoutCustomEntry() {
+    @Test fun customRangeRequiresBothTimesAndCancelKeepsTheLiveDefault() {
         selectGroup("Movement")
         scrollTo(hasText("Run") and hasClickAction()).performClick()
-        scrollTo(hasText("From–to")).assertIsSelected()
-        listOf("From", "To").forEach { label ->
-            val description = "$label current time"
-            scrollTo(hasContentDescription(description))
-            val node = compose.onNode(hasText("Now") and hasAnyAncestor(hasContentDescription(description)), useUnmergedTree = true)
-            val layouts = mutableListOf<TextLayoutResult>()
-            node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-            assertEquals(1, layouts.single().lineCount)
-            val result = layouts.single()
-            // Compare glyph bounds: a no-wrap paragraph may be wider than its visible text.
-            assertTrue(result.getBoundingBox(0).left >= 0f)
-            assertTrue(result.getBoundingBox(2).right <= result.size.width + 1f)
-            assertFalse(result.didOverflowHeight)
-        }
-        scrollTo(hasText("At")).performClick()
-        scrollTo(hasContentDescription("At current time")).assertExists()
-        compose.onNodeWithContentDescription("To current time").assertDoesNotExist()
+        scrollTo(hasContentDescription("Set custom time")).performClick()
+        compose.onNodeWithText("From–to").assertIsSelected()
+        compose.onNodeWithText("USE TIME").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("From selected time").performClick()
+        compose.onNodeWithText("OK").performClick()
+        compose.onNodeWithText("USE TIME").assertIsNotEnabled()
+        compose.onNodeWithText("CANCEL").performClick()
+        scrollTo(hasContentDescription("Live current time")).assertExists()
+        compose.onNodeWithText("Now").assertDoesNotExist()
         compose.onAllNodes(hasSetTextAction()).assertCountEquals(0)
         selectGroup("Travel")
         scrollTo(hasText("Arrived") and hasClickAction()).performClick()
-        scrollTo(hasText("At")).assertIsSelected()
+        scrollTo(hasContentDescription("Set custom time")).performClick()
+        compose.onNodeWithText("At").assertIsSelected()
+        compose.onNodeWithContentDescription("To selected time").assertDoesNotExist()
+        compose.onNodeWithText("CANCEL").performClick()
     }
 
-    @Test fun scrollingDoesNotChangeDraftSelectionOrTime() {
+    private fun chooseTime(description: String, minutes: Int) {
+        compose.onNodeWithContentDescription(description).performClick()
+        listOf("hour" to minutes / 60, "minute" to minutes % 60).forEach { (field, value) ->
+            val label = value.toString().padStart(2, '0')
+            val tag = "time-value-$field"
+            compose.onNodeWithTag(tag).performScrollToNode(hasText(label))
+            compose.onNode(hasText(label) and hasAnyAncestor(hasTestTag(tag))).performClick()
+        }
+        compose.onNodeWithText("OK").performClick()
+    }
+
+    @Test fun customRangeSurvivesScrollingAndRecreationAndActivityChangesResetToLive() {
+        val now = LocalTime.now().let { it.hour * 60 + it.minute }
+        org.junit.Assume.assumeTrue("Need two minutes of today's past for a range", now >= 2)
         selectGroup("Movement")
         scrollTo(hasText("Run") and hasClickAction()).performClick()
-        scrollTo(hasContentDescription("From current time")).performClick()
+        scrollTo(hasContentDescription("Set custom time")).performClick()
+        chooseTime("From selected time", now - 2)
+        chooseTime("To selected time", now)
+        compose.onNodeWithText("USE TIME").performClick()
         val start = text("From selected time")
+        val end = text("To selected time")
+        scenario.recreate()
+        compose.waitForIdle()
         repeat(3) {
             compose.onNodeWithTag("activity-composer").performScrollToIndex(0)
-            scrollTo(hasContentDescription("To current time"))
+            scrollTo(hasContentDescription("To selected time"))
         }
         assertEquals(start, text("From selected time"))
+        assertEquals(end, text("To selected time"))
         scrollTo(hasText("Run") and hasClickAction()).assertIsSelected()
         selectGroup("Wellbeing")
         scrollTo(hasText("Medicine") and hasClickAction()).performClick()
-        scrollTo(hasText("At")).assertIsSelected()
+        scrollTo(hasContentDescription("Live current time")).assertExists()
+        scrollTo(hasContentDescription("Set custom time")).performClick()
+        compose.onNodeWithText("At").assertIsSelected()
+        compose.onNodeWithText("CANCEL").performClick()
     }
 }

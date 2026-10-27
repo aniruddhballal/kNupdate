@@ -7,9 +7,15 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+internal data class SelectedActivityTime(val startAt: Long, val endAt: Long?)
+
 /** Epoch milliseconds are kept throughout editing, storage and transport. */
 internal object ActivityTime {
     fun now(clock: Clock = Clock.systemUTC()): Long = clock.millis()
+
+    /** Null is the live draft: resolve it only in the send-button handler. */
+    fun resolve(customStart: Long?, customEnd: Long?, pressedAt: Long): SelectedActivityTime =
+        if (customStart == null) SelectedActivityTime(pressedAt, null) else SelectedActivityTime(customStart, customEnd)
 
     fun manual(date: LocalDate, minutes: Int, zone: ZoneId): Long {
         require(minutes in 0..1439)

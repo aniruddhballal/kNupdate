@@ -10,6 +10,25 @@ import org.junit.Test
 class ActivityTimeTest {
     private val zone = ZoneId.of("Asia/Kolkata")
 
+    @Test fun liveDraftUsesTheButtonPressTimeEvenAfterWaitingAcrossMidnight() {
+        val displayed = Instant.parse("2026-10-26T18:29:00.100Z").toEpochMilli()
+        val pressedAt = Instant.parse("2026-10-26T18:31:34.567Z").toEpochMilli()
+        val selected = ActivityTime.resolve(null, null, pressedAt)
+        assertNotEquals(displayed, selected.startAt)
+        assertEquals(pressedAt, selected.startAt)
+        assertNull(selected.endAt)
+        assertEquals("27 Oct 2026, 12:01:34 AM", ActivityTime.text(selected.startAt, zone, true))
+    }
+
+    @Test fun explicitSingleAndRangeTimesStayFixedWhenSendingLater() {
+        val start = Instant.parse("2026-10-26T06:10:00Z").toEpochMilli()
+        val end = start + 60_000
+        val pressedAt = end + 120_567
+        assertEquals(SelectedActivityTime(start, null), ActivityTime.resolve(start, null, pressedAt))
+        assertEquals(SelectedActivityTime(start, end), ActivityTime.resolve(start, end, pressedAt))
+        assertNull(ActivityTime.error(start, end, pressedAt))
+    }
+
     @Test fun nowCapturesTheClockWithoutDiscardingSecondsOrMilliseconds() {
         val instant = Instant.parse("2026-10-26T06:12:34.567Z")
         val selected = ActivityTime.now(Clock.fixed(instant, zone))
