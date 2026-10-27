@@ -38,10 +38,15 @@ test("HTTP broadcast, independent ACKs, public schema, offline miss, and expiry"
   });
   const first = poll(a), second = poll(b);
   await delay(750);
-  const activity = message();
+  const activity = { ...message(), title: "Current location", body: "Synthetic location test", endAt: null,
+    coordinates: { latitude: 12.345678, longitude: -76.54321, accuracyMeters: 24.5, capturedAt: Date.now() } };
   assert.equal((await post("/v1/updates", activity)).listeners, 2);
-  assert.equal((await pollResult(first)).updates[0].id, activity.id);
-  assert.equal((await pollResult(second)).updates[0].id, activity.id);
+  const receivedFirst = (await pollResult(first)).updates[0];
+  const receivedSecond = (await pollResult(second)).updates[0];
+  assert.equal(receivedFirst.id, activity.id);
+  assert.equal(receivedSecond.id, activity.id);
+  assert.deepEqual(receivedFirst.coordinates, activity.coordinates);
+  assert.deepEqual(receivedSecond.coordinates, activity.coordinates);
   const publicJson = JSON.stringify(await current());
   assert.ok(!publicJson.includes(a) && !publicJson.includes(b));
   const latePoll = poll(late);

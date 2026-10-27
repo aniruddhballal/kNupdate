@@ -32,6 +32,78 @@ class ActivityStoreTest {
         endAt = System.currentTimeMillis() - 1, timeZone = "Asia/Calcutta", direction = direction,
         status = if (direction == "received") "received" else "sending")
 
+    @Test fun coordinatesPersistInSenderAndReceiverWithoutChangingOtherActivities() {
+        val fix = Coordinates(12.345678, -76.54321, 24.5, System.currentTimeMillis())
+        val scheduled = record().copy(endAt = null, status = "scheduled")
+        assertTrue(store.insert(scheduled))
+        store.capture(scheduled.id, fix)
+        val captured = store.records.value.single()
+        assertEquals(fix, captured.coordinates)
+        assertEquals("sending", captured.status)
+        val received = ActivityRecord.fromWire(captured.wireJson())
+        store.close()
+        store = ActivityStore(context)
+        store.load()
+        assertEquals(fix, store.records.value.single().coordinates)
+        store.close()
+        context.deleteDatabase("coordinates-received.db")
+        store = ActivityStore(context, "coordinates-received.db")
+        assertTrue(store.insert(received))
+        store.close()
+        store = ActivityStore(context, "coordinates-received.db")
+        store.load()
+        assertEquals(fix, store.records.value.single().coordinates)
+        assertFalse(store.insert(received))
+        store.close()
+        context.deleteDatabase("coordinates-received.db")
+        store = ActivityStore(context)
+        assertFalse(record().wireJson().has("coordinates"))
+    }
+
+    @Test fun interruptedLocationSchedulesAreNotSentAfterReopening() {
+        store.insert(record().copy(status = "scheduled"))
+        store.insert(record().copy(status = "locating"))
+        store.close()
+        store = ActivityStore(context)
+        store.load()
+        assertTrue(store.records.value.all { it.status == "missed" && it.coordinates == null })
+        assertEquals(2, store.records.value.size)
+    }
+
+    @Test fun versionOneHistoryUpgradesWithoutLosingEntries() {
+        store.close()
+        context.deleteDatabase("activities.db")
+        context.openOrCreateDatabase("activities.db", 0, null).use { db ->
+            db.execSQL("""CREATE TABLE activities (id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL,
+                start_at INTEGER NOT NULL, end_at INTEGER, time_zone TEXT NOT NULL, created_at INTEGER NOT NULL,
+                direction TEXT NOT NULL, status TEXT NOT NULL, listeners INTEGER, legacy INTEGER NOT NULL DEFAULT 0)""")
+            db.execSQL("INSERT INTO activities VALUES ('old', 'Run', '5k', 1000, NULL, 'UTC', 1000, 'sent', 'sent', 2, 0)")
+            db.version = 1
+        }
+        store = ActivityStore(context)
+        store.load()
+        assertEquals("old", store.records.value.single().id)
+        assertEquals(2, store.records.value.single().listeners)
+        assertNull(store.records.value.single().coordinates)
+        val fix = Coordinates(0.0, 0.0, 50.0, System.currentTimeMillis())
+        store.capture("old", fix)
+        assertEquals(fix, store.records.value.single().coordinates)
+    }
+
+    @Test fun malformedCoordinatesAreRejectedBeforeStorage() {
+        val value = record().copy(endAt = null)
+        val fix = Coordinates(0.0, 0.0, 50.0, System.currentTimeMillis()).json()
+        for (bad in listOf(JSONObject(fix.toString()).put("latitude", 91),
+            JSONObject(fix.toString()).put("longitude", "0"), JSONObject(fix.toString()).put("accuracyMeters", -1),
+            JSONObject(fix.toString()).put("capturedAt", value.startAt - 1),
+            JSONObject(fix.toString()).put("capturedAt", System.currentTimeMillis() + 120_000),
+            JSONObject(fix.toString()).put("name", "private"))) {
+            assertThrows(Exception::class.java) { ActivityRecord.fromWire(value.wireJson().put("coordinates", bad)) }
+        }
+        assertThrows(Exception::class.java) { ActivityRecord.fromWire(value.wireJson().put("coordinates", JSONObject.NULL)) }
+        assertThrows(Exception::class.java) { ActivityRecord.fromWire(record().wireJson().put("coordinates", fix)) }
+    }
+
     @Test fun exactTimesSurviveWireAndBothLocalHistories() {
         val exact = record().copy(startAt = 1_761_459_934_567L, endAt = 1_761_459_935_890L)
         assertTrue(store.insert(exact))

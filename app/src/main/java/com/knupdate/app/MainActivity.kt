@@ -3,6 +3,9 @@ package com.knupdate.app
 import android.os.Bundle
 import android.Manifest
 import android.content.Intent
+import android.app.AlarmManager
+import android.net.Uri
+import android.provider.Settings
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.ComponentActivity
@@ -317,6 +320,8 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
     val receiver by ReceiverStatus.state.collectAsState()
     val sending by SendCoordinator.sending.collectAsState()
     val sendError by SendCoordinator.error.collectAsState()
+    val locationActive by LocationSendService.active.collectAsState()
+    val locationError by LocationSendService.error.collectAsState()
     var tab by rememberSaveable { mutableStateOf("New") }
     var receiverError by rememberSaveable { mutableStateOf<String?>(null) }
     var ready by remember { mutableStateOf(false) }
@@ -332,8 +337,11 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
     var updateButtonSuccess by rememberSaveable { mutableStateOf(false) }
     var lastSentId by rememberSaveable { mutableStateOf<String?>(null) }
     var timePickerIsStart by remember { mutableStateOf<Boolean?>(null) }
+    var shareCoordinates by rememberSaveable { mutableStateOf(false) }
+    var locationNow by rememberSaveable { mutableStateOf(true) }
     val selectedActivity = ACTIVITY_OPTIONS.firstOrNull { it.id == selectedActivityId } ?: ACTIVITY_OPTIONS.first()
     val selectedGroup = ACTIVITY_GROUPS.firstOrNull { it.id == selectedGroupId } ?: ACTIVITY_GROUPS.first()
+    val coordinateMode = selectedActivityId == "location" && shareCoordinates
     val lastSent = updates.firstOrNull { it.id == lastSentId }
 
     fun selectActivity(id: String) {
@@ -345,6 +353,8 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
         startAt = ActivityTime.now()
         endAt = startAt
         timeError = null
+        shareCoordinates = false
+        locationNow = true
     }
 
     fun startReceiving() {
@@ -355,6 +365,17 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         startReceiving()
+    }
+    val locationNotificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    val locationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        if (LocationCapture.permitted(context)) {
+            shareCoordinates = true
+            locationNow = true
+            startAt = ActivityTime.now()
+            timeError = null
+            if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+                locationNotificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else timeError = "Allow location in Android app settings to share coordinates."
     }
 
     fun changeReceiving(enabled: Boolean) {
@@ -383,6 +404,27 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
     fun saveUpdate() {
         if (!ready || sending) return
         if (RelaySettings.url().isBlank()) { receiverError = "Unavailable"; return }
+        if (coordinateMode) {
+            if (locationActive) { timeError = "A location send is already pending. Cancel it before scheduling another."; return }
+            if (!LocationCapture.permitted(context)) {
+                locationPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+                return
+            }
+            if (!LocationCapture.enabled(context)) { timeError = "Turn on your phone's location, then tap kNupdate again."; return }
+            val at = if (locationNow) ActivityTime.now() else startAt
+            if (!locationNow && at <= ActivityTime.now()) { timeError = "Choose a future time or tap Now."; return }
+            if (!locationNow && Build.VERSION.SDK_INT >= 31 && !context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()) {
+                timeError = "Allow Alarms & reminders, then return and tap kNupdate again. Or tap Now to send immediately."
+                try { context.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${context.packageName}"))) }
+                catch (_: Exception) { timeError = "Enable Alarms & reminders in Android app settings, or tap Now." }
+                return
+            }
+            val update = ActivityRecord(title = selectedActivity.title, body = selectedBody, startAt = at, endAt = null, status = "scheduled")
+            try {
+                if (LocationSendService.schedule(context, update)) { lastSentId = update.id; timeError = null }
+            } catch (_: Exception) { timeError = "Could not start location sharing. Keep the app open and check location permission." }
+            return
+        }
         val selectedEnd = if (isRange) endAt else null
         if (selectedBody !in selectedActivity.bodies) return
         timeError = ActivityTime.error(startAt, selectedEnd, ActivityTime.now())
@@ -399,6 +441,11 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
         IconNavigation(selected = tab, onSelect = { tab = it })
         loadError?.let { Text(it, color = Color(0xFFB3261E), fontSize = 13.sp) }
         receiverError?.let { Text(it, color = Color(0xFFB3261E), fontSize = 13.sp) }
+        if (locationActive) {
+            Text("Location send pending", color = Muted, fontSize = 13.sp)
+            OutlinedButton(onClick = { LocationSendService.cancel(context) }, shape = RectangleShape) { Text("Cancel location send", color = Ink) }
+        }
+        locationError?.let { Text(it, color = Color(0xFFB3261E), fontSize = 13.sp) }
         when (tab) {
             "Sent", "Inbox" -> HistoryList(updates.filter { it.direction == if (tab == "Sent") "sent" else "received" })
             else -> LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f).testTag("activity-composer"),
@@ -419,18 +466,32 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
                 item(key = "selected-title", contentType = "title") {
                     Text(selectedActivity.title, color = Ink, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                 }
+                if (selectedActivityId == "location") item(key = "share-coordinates", contentType = "location") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ChoiceRow(listOf("Description only", "Share coordinates"), if (coordinateMode) "Share coordinates" else "Description only") { choice ->
+                            timeError = null
+                            if (choice == "Description only") shareCoordinates = false
+                            else if (LocationCapture.permitted(context)) {
+                                shareCoordinates = true; locationNow = true; startAt = ActivityTime.now()
+                                if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+                                    locationNotificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            } else locationPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+                        }
+                        if (coordinateMode) Text("One fresh snapshot at the selected time, sent to all active listeners. Tap Now to send immediately. Scheduled sends need Alarms & reminders access. Keep phone location on.", color = Muted, fontSize = 12.sp)
+                    }
+                }
                 item(key = "detail-label", contentType = "section") { SectionLabel("DETAIL") }
                 items(selectedActivity.bodies.chunked(2), key = { "detail-${selectedActivity.id}-${it.first()}" }, contentType = { "detail-row" }) { row ->
                     ChoiceRow(row, selectedBody) { selectedBody = it }
                 }
                 item(key = "time-label", contentType = "section") { SectionLabel("TIME") }
-                item(key = "time-mode", contentType = "mode") { TimeModeSelector(isRange) { isRange = it; timeError = null } }
+                if (!coordinateMode) item(key = "time-mode", contentType = "mode") { TimeModeSelector(isRange) { isRange = it; timeError = null } }
                 item(key = "start-time", contentType = "time") {
-                    TimestampField(if (isRange) "From" else "At", startAt,
+                    TimestampField(if (coordinateMode && locationNow) "Send now" else if (!coordinateMode && isRange) "From" else "At", startAt,
                         onEdit = { timePickerIsStart = true },
-                        onNow = { startAt = ActivityTime.now(); timeError = null })
+                        onNow = { startAt = ActivityTime.now(); locationNow = true; timeError = null })
                 }
-                if (isRange) item(key = "end-time", contentType = "time") {
+                if (isRange && !coordinateMode) item(key = "end-time", contentType = "time") {
                     TimestampField("To", endAt,
                         onEdit = { timePickerIsStart = false },
                         onNow = { endAt = ActivityTime.now(); timeError = null })
@@ -449,17 +510,22 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
         val zone = ZoneId.systemDefault()
         val timestamp = if (isStart) startAt else endAt
         val selectedDate = ActivityTime.date(timestamp, zone)
-        KNTimePickerDialog(ActivityTime.minutes(timestamp, zone), selectedDate,
+        KNTimePickerDialog(ActivityTime.minutes(timestamp, zone), selectedDate, allowFuture = coordinateMode,
             onDismiss = { timePickerIsStart = null },
             onConfirm = { chosen ->
                 val manualTime = ActivityTime.manual(selectedDate, chosen, zone)
-                if (isStart) startAt = manualTime else endAt = manualTime
+                if (isStart) { startAt = manualTime; locationNow = false } else endAt = manualTime
                 timeError = null; timePickerIsStart = null
             })
     }
 }
 
 private fun deliveryText(record: ActivityRecord): String = when (record.status) {
+    "scheduled" -> "Location scheduled"
+    "locating" -> "Getting coordinates"
+    "location_failed" -> "Location unavailable · not sent"
+    "cancelled" -> "Cancelled · not sent"
+    "missed" -> "Location send interrupted · not sent"
     "sending" -> "Sending"
     "sent" -> if (record.listeners == 0) "No listeners" else "Sent · ${record.listeners} listening"
     "uncertain" -> "Unconfirmed"
@@ -477,6 +543,10 @@ private fun HistoryList(records: List<ActivityRecord>) {
             Column(modifier = Modifier.fillMaxWidth().border(1.dp, Rule).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(record.title, color = Ink, fontSize = 17.sp, fontWeight = FontWeight.Bold)
                 Text(record.body, color = Ink, fontSize = 15.sp)
+                record.coordinates?.let { fix ->
+                    Text(fix.text(), color = Ink, fontSize = 14.sp)
+                    Text("Captured ${ActivityTime.text(fix.capturedAt, ZoneId.of(record.timeZone), includeDate = true)}", color = Muted, fontSize = 12.sp)
+                }
                 Text(record.timeText(), color = Muted, fontSize = 12.sp)
                 if (record.direction == "sent") Text(deliveryText(record), color = Muted, fontSize = 12.sp)
             }
@@ -488,10 +558,11 @@ private fun HistoryList(records: List<ActivityRecord>) {
 private fun KNTimePickerDialog(
     initialMinutes: Int,
     date: LocalDate,
+    allowFuture: Boolean = false,
     onDismiss: () -> Unit,
     onConfirm: (Int) -> Unit
 ) {
-    val nowLimit = remember { if (date < LocalDate.now()) 1439 else currentTimeMinutes() }
+    val nowLimit = remember { if (allowFuture || date < LocalDate.now()) 1439 else currentTimeMinutes() }
     val maxHour = nowLimit / 60
     val maxMinute = nowLimit % 60
     val safeInitial = initialMinutes.coerceIn(0, nowLimit)

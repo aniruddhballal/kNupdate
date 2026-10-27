@@ -43,8 +43,9 @@ class RelayRoundTripTest {
                 val firstPoll = async(Dispatchers.IO) { firstClient.poll(firstSession) }
                 val secondPoll = async(Dispatchers.IO) { secondClient.poll(secondSession) }
                 delay(2_000)
-                val record = ActivityRecord(title = "Run", body = "5k", startAt = System.currentTimeMillis() - 1_200_000,
-                    endAt = System.currentTimeMillis() - 1, timeZone = "Asia/Calcutta")
+                val record = ActivityRecord(title = "Current location", body = "Synthetic location test", startAt = System.currentTimeMillis() - 1_200_000,
+                    endAt = null, timeZone = "Asia/Calcutta",
+                    coordinates = Coordinates(12.345678, -76.54321, 24.5, System.currentTimeMillis()))
                 assertTrue(senderStore.insert(record))
                 val result = sender.publish(record, null)
                 assertEquals(2, result.getInt("listeners"))
@@ -56,11 +57,13 @@ class RelayRoundTripTest {
                 val reopened = ActivityStore(context, names[1])
                 reopened.load()
                 assertEquals(record.id, reopened.records.value.single().id)
+                assertEquals(record.coordinates, reopened.records.value.single().coordinates)
                 assertFalse(reopened.insert(first))
                 reopened.close()
                 firstClient.acknowledge(firstSession, listOf(first.id))
                 assertEquals(1, pendingCount())
                 assertTrue(secondStore.insert(second))
+                assertEquals(record.coordinates, secondStore.records.value.single().coordinates)
                 secondClient.acknowledge(secondSession, listOf(second.id))
                 assertEquals(0, pendingCount())
                 assertEquals("sent", senderStore.records.value.single().status)

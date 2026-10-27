@@ -10,7 +10,8 @@
 - Long polling, ephemeral listener sessions, multiple simultaneous recipients and updates.
 - Local commit before acknowledgement; duplicate suppression.
 - Deletion after all eligible acknowledgements, with a 30-second fallback expiry.
-- Live-only delivery; no offline backlog or automatic delayed sends.
+- Live-only delivery; no offline backlog or automatic retries of failed sends.
+- Optional immediate or scheduled coordinate snapshots with location permission, cancellation, and local coordinate history.
 - Android foreground receiving service, incoming notifications and stop action.
 - Timeout handling, offline status and retry backoff.
 - Relay configuration and health check from the app.
@@ -23,6 +24,8 @@
 - [x] Pass HTTP integration and Android client/SQLite round-trip tests against the claimed live endpoint.
 - [x] Verify installed backup flag and local receipt counts on an Android 15 phone without exporting its database.
 - [x] Verify a synthetic live background delivery, notification, local persistence, and deletion after the last of two listener acknowledgements using one phone and a temporary test listener.
+- [ ] Deploy the relay update that accepts optional coordinates.
+- [ ] Verify physical-device location permission, fresh fixes, scheduled screen-off sending and cancellation.
 - Install the configured APK on at least two phones.
 - Verify notification permissions, screen-off receiving, internet toggling and OEM battery behavior.
 - Verify Android foreground-service timeout and explicit restart on a physical device.
@@ -34,5 +37,6 @@
 2. Design and review end-to-end encryption and any shared-folder transport.
 3. Decide whether best-effort background receiving meets the product need or requires a push transport.
 4. Add abuse controls before treating the unrestricted public endpoint as a broad public service.
+5. Display locally stored coordinates on an open-source map.
 
 No accounts, permanent device identifiers, connection graph, offline catch-up, cloud activity history, or encryption are implemented in this phase.

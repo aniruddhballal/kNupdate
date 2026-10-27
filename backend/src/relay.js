@@ -14,7 +14,7 @@ export function validateSession(session) {
 }
 
 export function validateActivity(value, now) {
-  const keys = ["id", "title", "body", "startAt", "endAt", "timeZone"];
+  const keys = ["id", "title", "body", "startAt", "endAt", "timeZone", "coordinates"];
   if (!value || typeof value !== "object" || Array.isArray(value) ||
       Object.keys(value).some(key => !keys.includes(key))) {
     throw new HttpError(400, "Only activity fields are accepted; do not include personal details.");
@@ -30,7 +30,21 @@ export function validateActivity(value, now) {
   }
   try { new Intl.DateTimeFormat("en", { timeZone: value.timeZone }); }
   catch { throw new HttpError(400, "Invalid time zone."); }
-  return Object.fromEntries(keys.map(key => [key, value[key]]));
+  const result = Object.fromEntries(keys.filter(key => key !== "coordinates").map(key => [key, value[key]]));
+  if (Object.hasOwn(value, "coordinates")) {
+    const fix = value.coordinates;
+    const fields = ["latitude", "longitude", "accuracyMeters", "capturedAt"];
+    if (!fix || typeof fix !== "object" || Array.isArray(fix) || Object.keys(fix).length !== fields.length ||
+        fields.some(key => !Object.hasOwn(fix, key) || !Number.isFinite(fix[key])) ||
+        Object.keys(fix).some(key => !fields.includes(key)) ||
+        fix.latitude < -90 || fix.latitude > 90 || fix.longitude < -180 || fix.longitude > 180 ||
+        fix.accuracyMeters < 0 || !Number.isSafeInteger(fix.capturedAt) ||
+        fix.capturedAt < value.startAt || fix.capturedAt > now + 60_000 || value.endAt !== null) {
+      throw new HttpError(400, "Invalid coordinates or capture time.");
+    }
+    result.coordinates = Object.fromEntries(fields.map(key => [key, fix[key]]));
+  }
+  return result;
 }
 
 // All transitions are synchronous. Payloads live only in this object's memory.

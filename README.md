@@ -13,7 +13,21 @@ The app displays its version beside `kN`. Android metadata and the UI share `ver
 4. The relay snapshots active random listener sessions when the activity arrives. A five-second lease covers the gap between polls. New listeners are not added to an existing update.
 5. Each recipient commits its copy to local SQLite, then acknowledges it. Repeated delivery after a lost acknowledgement does not create another local entry or notification.
 6. The last required acknowledgement removes the relay's copy. A 30-second expiry removes unacknowledged copies; no listeners means immediate disposal. Concurrent activities have independent lifetimes.
-7. Sent history stays in **Sent**; incoming activity stays in **Inbox**. No offline catch-up or automatic delayed sending is implemented. A failed POST is marked unconfirmed because a network timeout cannot prove whether the server accepted it.
+7. Sent history stays in **Sent**; incoming activity stays in **Inbox**. No offline catch-up is implemented. Only the optional coordinate snapshot supports an explicit scheduled send (see below). A failed POST is marked unconfirmed because a network timeout cannot prove whether the server accepted it.
+
+## Optional location coordinates
+
+Choose **Everyday → Location → Share coordinates**, grant Android location permission, keep the phone's location switched on, then choose a time and tap **kNupdate**. **Now** requests an immediate snapshot. The manual time picker allows a future time today for this mode. Description-only location updates and all other activities keep their existing past-time behavior. Coordinate snapshots use one timestamp, not a range.
+
+The phone waits locally and requests a fresh location fix only when the selected time arrives. It sends latitude, longitude, reported accuracy in meters, and capture time to the listeners active when the POST reaches the relay. Android's approximate permission is supported; coordinates may then be less precise. There is no continuous location subscription while waiting, no last-known-location fallback, and no map or map service dependency.
+
+One location send can be pending per phone. A user-started location foreground service keeps a notification visible while waiting; **Cancel location send** is available in the app and notification. Notification permission is requested separately on Android 13+; denying notifications does not grant or revoke location access. The service starts while the activity is visible and does not request background location permission. See [Android's foreground location rules](https://developer.android.com/develop/background-work/services/fgs/restrictions-bg-start).
+
+For future sends on Android 12+, the app opens **Alarms & reminders** settings if access is missing. Allow it, return, and tap **kNupdate** again. Immediate snapshots do not need this access. An awake timer plus `setExactAndAllowWhileIdle` dispatch the request; there is no silent fallback to an inexact alarm. See [Android's exact-alarm permission and timing rules](https://developer.android.com/develop/background-work/services/alarms). Timing still depends on Android and device battery policies, and acquiring a fresh fix can take up to 30 seconds. Denied permission, disabled location, or lack of a fresh fix fails the send instead of sending old coordinates. A stopped service, reboot, force-stop, process termination, or revoked alarm access does not silently restart a schedule. On reopening, interrupted schedules show as not sent. A failed POST remains unconfirmed and is never retried automatically.
+
+Both Sent and Inbox retain coordinates and capture time in private local SQLite, and the expanded incoming notification includes the coordinates. Existing local databases migrate without losing history. Maps remain deferred. Coordinates follow the existing relay lifetime: plaintext in process memory until all eligible listeners acknowledge, or at most 30 seconds; no Cloudflare database, KV, durable queue, or payload logging is added. The relay and its public pending-update endpoint remain public, as described below.
+
+Deploy the updated `backend` before using coordinate sends against an existing relay: the earlier relay rejects the additional field. Local validation uses synthetic coordinates, including a real HTTP/Android SQLite round trip. Physical-device GPS acquisition and screen-off timing still need acceptance testing.
 
 A listener is a random, temporary session handle. It is regenerated when receiving starts or Android reports loss of connectivity. It is not an account, device ID, display name, or profile. Online/offline detection is approximate: a dropped TCP connection cannot always be detected immediately, and the lease deliberately allows a small gap between requests. A failed delivery can remain pending until expiry.
 
@@ -215,7 +229,7 @@ The device audit confirmed backup disabled in the installed APK, one locally ret
 | GET | `/v1/updates` | Public in-flight activity JSON; no recipient tokens |
 | POST | `/v1/ack` | `{ "ids": ["activity-uuid"] }`; recipient session in header |
 
-The publish body contains exactly `id`, `title`, `body`, `startAt`, `endAt`, and `timeZone`. Times are Unix milliseconds; `endAt` is null for one timestamp. Responses to polling/public reads add `expiresAt`. POST responses report how many listeners were eligible, not proof of notification or completed delivery.
+The publish body contains `id`, `title`, `body`, `startAt`, `endAt`, and `timeZone`, plus an optional `coordinates` object with exactly `latitude`, `longitude`, `accuracyMeters`, and `capturedAt`. Coordinates require `endAt: null`. Latitude/longitude must be finite and within their geographic ranges, accuracy must be nonnegative, and capture time must be at or after `startAt` and no more than a minute ahead of the relay clock. Times are Unix milliseconds. Ordinary activities omit `coordinates` entirely, preserving compatibility with older clients. Responses to polling/public reads add `expiresAt`. POST responses report how many listeners were eligible, not proof of notification or completed delivery.
 
 ## Deferred
 

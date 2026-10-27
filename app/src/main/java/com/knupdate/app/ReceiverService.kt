@@ -187,7 +187,8 @@ class ReceiverService : Service() {
         getSystemService(NotificationManager::class.java).notify(record.id.hashCode(),
             NotificationCompat.Builder(this, UPDATE_CHANNEL).setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle(record.title).setContentText(record.body)
-                .setStyle(NotificationCompat.BigTextStyle().bigText("${record.body}\n${record.timeText()}"))
+                .setStyle(NotificationCompat.BigTextStyle().bigText(listOfNotNull(record.body,
+                    record.coordinates?.text(), record.timeText()).joinToString("\n")))
                 .setContentIntent(openApp(this)).setAutoCancel(true).build())
     }
 

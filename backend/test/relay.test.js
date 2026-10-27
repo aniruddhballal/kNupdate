@@ -5,6 +5,37 @@ import { Relay, TTL_MS, validateActivity } from "../src/relay.js";
 
 const activity = (now = Date.now()) => ({ id: randomUUID(), title: "Run", body: "5k", startAt: now - 1_200_000, endAt: now - 1, timeZone: "Asia/Calcutta" });
 
+test("coordinates reach both listeners unchanged and disappear after the last ACK", async () => {
+  const now = Date.now();
+  const relay = new Relay({ now: () => now });
+  const first = randomUUID(), second = randomUUID();
+  const a = relay.poll(first), b = relay.poll(second);
+  const coordinates = { latitude: 12.345678, longitude: -76.54321, accuracyMeters: 24.5, capturedAt: now };
+  const value = { ...activity(now), endAt: null, coordinates };
+  assert.equal(relay.publish(value).listeners, 2);
+  assert.deepEqual((await a)[0].coordinates, coordinates);
+  assert.deepEqual((await b)[0].coordinates, coordinates);
+  relay.acknowledge(first, [value.id]);
+  assert.deepEqual(relay.publicUpdates()[0].coordinates, coordinates);
+  relay.acknowledge(second, [value.id]);
+  assert.deepEqual(relay.publicUpdates(), []);
+});
+
+test("optional coordinates are strictly validated and cannot carry extra identity fields", () => {
+  const now = Date.now();
+  const fix = { latitude: 0, longitude: 0, accuracyMeters: 0, capturedAt: now };
+  const value = { ...activity(now), endAt: null, coordinates: fix };
+  assert.deepEqual(validateActivity(value, now).coordinates, fix);
+  for (const coordinates of [null, [], {}, { ...fix, latitude: 91 }, { ...fix, longitude: -181 },
+    { ...fix, accuracyMeters: -1 }, { ...fix, accuracyMeters: NaN }, { ...fix, latitude: "0" },
+    { ...fix, capturedAt: value.startAt - 1 }, { ...fix, capturedAt: now + 60_001 },
+    { ...fix, capturedAt: now + 0.5 }, { ...fix, name: "private" }]) {
+    assert.throws(() => validateActivity({ ...value, coordinates }, now), { status: 400 });
+  }
+  assert.throws(() => validateActivity({ ...value, endAt: now }, now), { status: 400 });
+  assert.ok(!Object.hasOwn(validateActivity(activity(now), now), "coordinates"));
+});
+
 test("all listeners receive; first ACK does not delete another listener's update", async () => {
   const relay = new Relay();
   const alice = randomUUID(), bob = randomUUID();

@@ -33,6 +33,12 @@ The activity catalog/grid and exact-time controls were first built as **1.2.0 (c
 
 **1.2.2 (code 9)** adds square UI controls, distinct activity icons, row-level lazy scrolling and an optimized preview build. Its published artifact is `kNupdate.apk`; the former root development APK was removed. Debug and optimized preview were built together under this single version reservation.
 
+**1.3.0 (code 12)** adds optional immediate or scheduled location coordinate snapshots, Android location permission, and local coordinate history. Intermediate validation builds consumed 1.2.3 (code 10) and 1.2.4 (code 11); those numbers are not reused.
+
+**1.3.1 (code 13)** explicitly marks location hardware optional, so devices without location hardware remain eligible to install the app.
+
+**1.3.2 (code 14)** requires Alarms & reminders access for future snapshots and uses an exact idle-allowed alarm instead of an inexact fallback. This is the final coordinate-feature APK at `kNupdate.apk`.
+
 Every normal app APK/AAB build reserves the next patch version and increments versionCode once per Gradle invocation. Debug, preview and release variants in the same invocation share that reservation. This includes full `build`, `assemble`, `bundle`, `package` and `install` artifact tasks, including Android Studio's normal `:app:assembleDebug` invocation. Use complete task names rather than abbreviations.
 
 ```powershell

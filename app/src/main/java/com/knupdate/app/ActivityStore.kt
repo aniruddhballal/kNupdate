@@ -23,12 +23,14 @@ data class ActivityRecord(
     val direction: String = "sent",
     val status: String = "sending",
     val listeners: Int? = null,
-    val legacy: Boolean = false
+    val legacy: Boolean = false,
+    val coordinates: Coordinates? = null
 ) {
     // Explicit wire schema: display names and local metadata never leave the phone.
     fun wireJson(): JSONObject = JSONObject()
         .put("id", id).put("title", title).put("body", body)
         .put("startAt", startAt).put("endAt", endAt ?: JSONObject.NULL).put("timeZone", timeZone)
+        .also { json -> coordinates?.let { json.put("coordinates", it.json()) } }
 
     fun timeText(): String {
         val zone = ZoneId.of(timeZone)
@@ -50,12 +52,15 @@ data class ActivityRecord(
             require(start >= 0 && start <= System.currentTimeMillis() + 60_000)
             require(end == null || (end > start && end <= System.currentTimeMillis() + 60_000))
             ZoneId.of(zone)
-            return ActivityRecord(id, title, body, start, end, zone, direction = "received", status = "received")
+            val coordinates = if (json.has("coordinates")) Coordinates.fromJson(json.getJSONObject("coordinates")) else null
+            require(coordinates == null || (end == null && coordinates.capturedAt >= start &&
+                coordinates.capturedAt <= System.currentTimeMillis() + 60_000))
+            return ActivityRecord(id, title, body, start, end, zone, direction = "received", status = "received", coordinates = coordinates)
         }
     }
 }
 
-class ActivityStore internal constructor(context: Context, databaseName: String = "activities.db") : SQLiteOpenHelper(context, databaseName, null, 1) {
+class ActivityStore internal constructor(context: Context, databaseName: String = "activities.db") : SQLiteOpenHelper(context, databaseName, null, 2) {
     private val preferences = context.getSharedPreferences("knupdate_local", Context.MODE_PRIVATE)
     private val mutableRecords = MutableStateFlow<List<ActivityRecord>>(emptyList())
     val records = mutableRecords.asStateFlow()
@@ -66,16 +71,20 @@ class ActivityStore internal constructor(context: Context, databaseName: String 
             id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL,
             start_at INTEGER NOT NULL, end_at INTEGER, time_zone TEXT NOT NULL,
             created_at INTEGER NOT NULL, direction TEXT NOT NULL, status TEXT NOT NULL,
-            listeners INTEGER, legacy INTEGER NOT NULL DEFAULT 0)""")
+            listeners INTEGER, legacy INTEGER NOT NULL DEFAULT 0, coordinates TEXT)""")
         db.execSQL("CREATE INDEX activity_order ON activities(created_at DESC)")
     }
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) db.execSQL("ALTER TABLE activities ADD COLUMN coordinates TEXT")
+    }
 
     @Synchronized fun load() {
         if (loaded) return
         migrateLegacy()
         // A killed process cannot know whether a POST reached the relay. Never resend silently.
         writableDatabase.execSQL("UPDATE activities SET status = 'uncertain' WHERE status = 'sending'")
+        // Schedules belong to a user-started foreground service, never a reboot queue.
+        writableDatabase.execSQL("UPDATE activities SET status = 'missed' WHERE status IN ('scheduled', 'locating')")
         refresh()
         loaded = true
     }
@@ -96,11 +105,21 @@ class ActivityStore internal constructor(context: Context, databaseName: String 
         refresh()
     }
 
+    @Synchronized fun capture(id: String, coordinates: Coordinates) {
+        val values = ContentValues().apply {
+            put("coordinates", coordinates.json().toString())
+            put("status", "sending")
+        }
+        writableDatabase.update("activities", values, "id = ?", arrayOf(id))
+        refresh()
+    }
+
     private fun values(record: ActivityRecord) = ContentValues().apply {
         put("id", record.id); put("title", record.title); put("body", record.body)
         put("start_at", record.startAt); put("end_at", record.endAt); put("time_zone", record.timeZone)
         put("created_at", record.createdAt); put("direction", record.direction); put("status", record.status)
         put("listeners", record.listeners); put("legacy", if (record.legacy) 1 else 0)
+        put("coordinates", record.coordinates?.json()?.toString())
     }
 
     private fun refresh() {
@@ -111,7 +130,8 @@ class ActivityStore internal constructor(context: Context, databaseName: String 
                         id = cursor.getString(0), title = cursor.getString(1), body = cursor.getString(2),
                         startAt = cursor.getLong(3), endAt = if (cursor.isNull(4)) null else cursor.getLong(4),
                         timeZone = cursor.getString(5), createdAt = cursor.getLong(6), direction = cursor.getString(7),
-                        status = cursor.getString(8), listeners = if (cursor.isNull(9)) null else cursor.getInt(9), legacy = cursor.getInt(10) == 1
+                        status = cursor.getString(8), listeners = if (cursor.isNull(9)) null else cursor.getInt(9), legacy = cursor.getInt(10) == 1,
+                        coordinates = if (cursor.isNull(11)) null else Coordinates.fromJson(JSONObject(cursor.getString(11)))
                     ))
                 }
             }
