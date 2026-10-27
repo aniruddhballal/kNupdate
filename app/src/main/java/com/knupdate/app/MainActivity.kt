@@ -699,9 +699,15 @@ private fun CoordinateMap(fix: Coordinates) {
             minZoomLevel = 2.0
             maxZoomLevel = 20.0
             // Keep the map in the app's restrained black-and-white visual system.
-            setLayerType(View.LAYER_TYPE_SOFTWARE, Paint().apply {
+            // Keep the compact map's existing rendering unchanged. The
+            // fullscreen map uses a GPU layer because a software grayscale
+            // pass becomes expensive when raster tiles fill the whole screen.
+            setLayerType(
+                if (fullscreen) View.LAYER_TYPE_HARDWARE else View.LAYER_TYPE_SOFTWARE,
+                Paint().apply {
                 colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(0f) })
-            })
+                }
+            )
         }
     }
 
@@ -743,25 +749,7 @@ private fun MapViewport(mapView: MapView, fix: Coordinates, fullscreen: Boolean,
         AndroidView(
             factory = { mapView },
             modifier = Modifier.fillMaxSize(),
-            update = { view ->
-                val point = GeoPoint(fix.latitude, fix.longitude)
-                view.overlays.clear()
-                view.overlays += Polygon(view).apply {
-                    points.addAll(Polygon.pointsAsCircle(point, fix.accuracyMeters))
-                    setFillColor(android.graphics.Color.argb(38, 0, 0, 0))
-                    setStrokeColor(android.graphics.Color.argb(150, 0, 0, 0))
-                    setStrokeWidth(2f)
-                }
-                view.overlays += Marker(view).apply {
-                    icon = ContextCompat.getDrawable(view.context, R.drawable.ic_activity_location)
-                    position = point
-                    title = "Sender location"
-                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                }
-                view.controller.setCenter(point)
-                view.controller.setZoom(mapZoom(fix.accuracyMeters))
-                view.invalidate()
-            }
+            update = { view -> updateMapContent(view, fix) }
         )
         Box(
             modifier = Modifier
@@ -788,6 +776,29 @@ private fun MapViewport(mapView: MapView, fix: Coordinates, fullscreen: Boolean,
             modifier = Modifier.align(Alignment.BottomStart).background(Paper).padding(4.dp)
         )
     }
+}
+
+private fun updateMapContent(view: MapView, fix: Coordinates) {
+    if (view.tag == fix) return
+    view.tag = fix
+
+    val point = GeoPoint(fix.latitude, fix.longitude)
+    view.overlays.clear()
+    view.overlays += Polygon(view).apply {
+        points.addAll(Polygon.pointsAsCircle(point, fix.accuracyMeters))
+        setFillColor(android.graphics.Color.argb(38, 0, 0, 0))
+        setStrokeColor(android.graphics.Color.argb(150, 0, 0, 0))
+        setStrokeWidth(2f)
+    }
+    view.overlays += Marker(view).apply {
+        icon = ContextCompat.getDrawable(view.context, R.drawable.ic_activity_location)
+        position = point
+        title = "Sender location"
+        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+    }
+    view.controller.setCenter(point)
+    view.controller.setZoom(mapZoom(fix.accuracyMeters))
+    view.invalidate()
 }
 
 private fun mapZoom(accuracyMeters: Double): Double = when {

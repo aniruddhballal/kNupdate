@@ -57,6 +57,8 @@ The activity catalog/grid and exact-time controls were first built as **1.2.0 (c
 
 **1.6.2 (code 23)** fixes a crash when switching a coordinate map into fullscreen by preventing a detached osmdroid view from being reused. No backend change is required.
 
+**1.6.3 (code 24)** keeps the compact map renderer unchanged while moving fullscreen map desaturation to the GPU and avoiding repeated overlay/camera work during interaction. No backend change is required.
+
 Every normal app APK/AAB build reserves the next patch version and increments versionCode once per Gradle invocation. Debug, preview and release variants in the same invocation share that reservation. This includes full `build`, `assemble`, `bundle`, `package` and `install` artifact tasks, including Android Studio's normal `:app:assembleDebug` invocation. Use complete task names rather than abbreviations.
 
 ```powershell
