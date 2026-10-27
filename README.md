@@ -67,7 +67,7 @@ The app includes 100 predefined activities across ten groups. Activities and opt
 | Leisure | Music, Watch, Game, Create, Write, Photos, Garden, Explore, Event, Relax |
 | Social | Meet, Video call, Phone call, Family, Friends, Date, Visit, Chat, Celebrate, Volunteer, Pet time, Community |
 | Home | Clean, Laundry, Dishes, Tidy, Repair, Move home, Childcare, Pet care, Meal prep, Home admin |
-| Errands | Shop, Groceries, Collect, Delivery, Appointment, Bank, Post office, Fuel / charge, Queue, Haircut |
+| Errands | Shop, Groceries, Collect, Delivery, Booking, Bank, Post office, Fuel, Queue, Haircut |
 | Wellbeing | Meditate, Breathe, Journal, Pray, Health visit, Therapy, Self-care, Recover, Medicine, Check-in |
 
 Every activity starts in **Live** mode, with no timestamp or range stored in the draft. A ticking clock appears just above kNupdate with a **Custom** button beside it. Pressing kNupdate captures the device clock at that instant, including seconds and milliseconds, and sends one timestamp. This remains true if the composer has been open for minutes or across midnight. The displayed clock is only a preview; it is never reused as the send time. Only the visible clock updates each second, and ticking pauses when the activity is no longer started.
@@ -237,6 +237,8 @@ adb shell am instrument -w -r -e class com.knupdate.app.ActivityComposerTest com
 On 27 October 2026, all three composer UI tests passed on the connected phone with the 1.3.4 debug build. The Live clock ticked, custom values survived recreation and scrolling, incomplete ranges could not be applied, and cancelling or returning to Live left no frozen default timestamp. These checks did not publish activities.
 
 The expanded composer suite passed on the same phone for 1.6.5, including Location's live-only flow, the At-only activities, and Drink's no-range editor. Unit tests also confirmed that existing/older-client Location ranges remain readable without changing their timestamps. The new policies restrict new custom input and leave historical records intact.
+
+**1.6.6** refreshes the Therapy and Meal prep marks, keeps long activity labels on one line on the phone, and uses the same visible ticking timestamp for Current location and other live activity drafts.
 
 On 26 October 2026, an ADB-connected Android 15 phone running the committed APK passed a short background-receiving check against the live relay. It received a labelled synthetic update and posted a notification with the app in the background. A temporary second listener withheld acknowledgement; the relay retained the update until its acknowledgement, then the public pending list became empty within approximately 0.4 seconds. This does not establish long-term screen-off or Doze reliability.
 

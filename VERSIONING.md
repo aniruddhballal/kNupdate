@@ -63,6 +63,8 @@ The activity catalog/grid and exact-time controls were first built as **1.2.0 (c
 
 **1.6.5 (code 26)** refines activity-level rules: Location always sends coordinates with a live timestamp, Wake up and Drink are At-only, Sleep and Rest have no details, all details are optional and resettable, and calls live under Social. The relay accepts empty bodies for no-detail activities, so the matching backend deployment is required.
 
+**1.6.6 (code 27)** refreshes the Therapy and Meal prep icons, keeps activity and detail labels on one line, and gives the live clock—including Current location—one consistent timestamp-only display without a visible “Live” prefix.
+
 Every normal app APK/AAB build reserves the next patch version and increments versionCode once per Gradle invocation. Debug, preview and release variants in the same invocation share that reservation. This includes full `build`, `assemble`, `bundle`, `package` and `install` artifact tasks, including Android Studio's normal `:app:assembleDebug` invocation. Use complete task names rather than abbreviations.
 
 ```powershell

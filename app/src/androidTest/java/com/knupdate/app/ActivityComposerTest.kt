@@ -71,7 +71,7 @@ class ActivityComposerTest {
     @Test fun liveClockTicksAndCustomTimeSurvivesRecreationUntilLiveIsSelected() {
         scrollTo(hasText("Eat") and hasClickAction()).performClick()
         val live = text("Live current time")
-        assertTrue(live.matches(Regex("Live  \\d{1,2}:\\d{2}:\\d{2} [AP]M")))
+        assertTrue(live.matches(Regex("\\d{1,2}:\\d{2}:\\d{2} [AP]M")))
         compose.mainClock.autoAdvance = false
         try {
             Thread.sleep(1_200)
@@ -162,7 +162,8 @@ class ActivityComposerTest {
         selectGroup("Everyday")
         scrollTo(hasText("Location") and hasClickAction()).performClick()
         scrollTo(hasText("Coordinates are always shared.", substring = true)).assertExists()
-        scrollTo(hasText("Live now")).assertExists()
+        scrollTo(hasContentDescription("Current time")).assertExists()
+        compose.onNodeWithText("Live now").assertDoesNotExist()
         compose.onNodeWithContentDescription("Set custom time").assertDoesNotExist()
         scrollTo(hasText("No detail") and hasClickAction()).assertIsSelected()
     }

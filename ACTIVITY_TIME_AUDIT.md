@@ -26,7 +26,7 @@ At-only: **Location, Wake up, Drink, Arrived, Departed, Collect, Delivery, Medic
 
 No ongoing activity is forced to From–to. A statement such as “working at 10,” “sleeping at 11,” or “attending therapy at 3” is meaningful even if the person does not know the full interval. Requiring two endpoints would block those legitimate custom snapshots and be inconsistent with the universal Live option. The policy model can represent From–to only, but no existing activity is assigned it merely to fill that category.
 
-Policies cover every existing detail under an activity, while details themselves remain optional. Broad activities with mixed uses retain both modes: Post office includes collection and a service visit; Fuel / charge includes a fuel stop and an EV charging session. Changing a detail must not silently change what an already selected timestamp means.
+Policies cover every existing detail under an activity, while details themselves remain optional. Broad activities with mixed uses retain both modes: Post office includes collection and a service visit; Fuel includes a fuel stop and an EV charging session. Changing a detail must not silently change what an already selected timestamp means.
 
 ## Everyday
 
@@ -121,8 +121,8 @@ Policies cover every existing detail under an activity, while details themselves
 | Activity (`id`) | Meaning of At | Meaning of From–to | Custom policy / initial choice |
 | --- | --- | --- | --- |
 | Meet (`meeting-people`) | In a Catch-up, meeting New people, or a Group gathering at that moment. | Time spent meeting or socialising. This differs from the point event Arrived. | Both / From–to |
-| Video call (`video-call`) | On a Family, Friends, Work, or Appointment video call at that instant. | Time spent on that video call. | Both / From–to |
-| Phone call (`phone-call`) | On a Family, Friends, Work, or Appointment phone call at that instant. | Time spent on that phone call. | Both / From–to |
+| Video call (`video-call`) | On a Family, Friends, Work, or Booking video call at that instant. | Time spent on that video call. | Both / From–to |
+| Phone call (`phone-call`) | On a Family, Friends, Work, or Booking phone call at that instant. | Time spent on that phone call. | Both / From–to |
 | Family (`family`) | Spending family time At home, on an Outing, or during a Meal together at that instant. | A family-time interval. | Both / From–to |
 | Friends (`friends`) | Hanging out, having a Meal together, or on an Outing with friends at that moment. | Time spent together. | Both / From–to |
 | Date (`date`) | On a date involving a Meal, Coffee, Walk, or Outing at that instant. | Time spent on that occasion. The activity name is not a calendar-date input. | Both / From–to |
@@ -156,10 +156,10 @@ Policies cover every existing detail under an activity, while details themselves
 | Groceries (`groceries`) | Shopping at a Supermarket, Market, Local shop, or placing an Online order at that instant. | Time spent grocery shopping or assembling the order. | Both / From–to |
 | Collect (`collecting`) | The Parcel, Order, Food, or Documents pickup/collection point. | Unavailable. These details describe a specific collection/handover, not a collection round or time spent queuing. Queue, Shop, or Post office can report an interval of effort or attendance. | At only / At |
 | Delivery (`delivery`) | The Parcel, Food, Documents, or Drop-off handover point, whether reporting receipt or drop-off. | Unavailable. This catalog entry does not describe a courier shift, delivery route, or a promised delivery window. Those would need a differently specified activity. | At only / At |
-| Appointment (`appointment`) | Attending a Personal, Professional, Service, or Consultation appointment at that instant. | Time spent attending. An appointment can occupy a session, so it is not restricted like Arrived. Ordinary future bookings are not introduced by this policy. | Both / From–to |
+| Booking (`booking`) | Attending a Personal, Professional, Service, or Consultation booking at that instant. | Time spent attending. A booking can occupy a session, so it is not restricted like Arrived. Ordinary future bookings are not introduced by this policy. | Both / From–to |
 | Bank (`bank`) | At a Bank branch, using an ATM, or doing Online banking at that moment. | A banking/branch-service session. A quick ATM transaction and a longer online session both remain expressible. | Both / From–to |
 | Post office (`post-office`) | Posting, Collecting, or using a Courier service at that instant. | A visit/service interval. The activity spans more than the specific Collect handover entry. | Both / From–to |
-| Fuel / charge (`fuel-charge`) | At a Fuel stop, EV charging, or Vehicle charging at that moment. | A refuelling/charging interval, particularly important for longer charging sessions. | Both / From–to |
+| Fuel (`fuel-charge`) | At a Fuel stop, EV charging, or Vehicle charging at that moment. | A refuelling/charging interval, particularly important for longer charging sessions. | Both / From–to |
 | Queue (`queue`) | Queuing at a Shop, Service, for Tickets, or at an Office at that instant. | A queuing interval. Neither endpoint is inferred from an isolated status report. | Both / From–to |
 | Haircut (`haircut`) | Getting a haircut at a Barber, Salon, or At home at that moment. | The haircut/service interval. | Both / From–to |
 

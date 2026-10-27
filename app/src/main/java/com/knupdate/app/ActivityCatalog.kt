@@ -113,8 +113,8 @@ internal val ACTIVITY_GROUPS = listOf(
     )),
     ActivityGroup("social", "Social", R.drawable.ic_activity_meeting_people, listOf(
         activity("meeting-people", "Meeting people", R.drawable.ic_activity_meeting_people, "Catch-up", "New people", "Group gathering", timePolicy = BOTH, label = "Meet"),
-        activity("video-call", "Video call", R.drawable.ic_activity_video_call, "Family", "Friends", "Work", "Appointment", timePolicy = BOTH),
-        activity("phone-call", "Phone call", R.drawable.ic_activity_phone_call, "Family", "Friends", "Work", "Appointment", timePolicy = BOTH),
+        activity("video-call", "Video call", R.drawable.ic_activity_video_call, "Family", "Friends", "Work", "Booking", timePolicy = BOTH),
+        activity("phone-call", "Phone call", R.drawable.ic_activity_phone_call, "Family", "Friends", "Work", "Booking", timePolicy = BOTH),
         activity("family", "Family time", R.drawable.ic_activity_family, "At home", "Outing", "Meal together", timePolicy = BOTH, label = "Family"),
         activity("friends", "With friends", R.drawable.ic_activity_friends, "Hanging out", "Meal together", "Outing", timePolicy = BOTH, label = "Friends"),
         activity("date", "Date", R.drawable.ic_activity_date, "Meal", "Coffee", "Walk", "Outing", timePolicy = BOTH),
@@ -142,10 +142,10 @@ internal val ACTIVITY_GROUPS = listOf(
         activity("groceries", "Groceries", R.drawable.ic_activity_groceries, "Supermarket", "Market", "Local shop", "Online order", timePolicy = BOTH),
         activity("collecting", "Collecting", R.drawable.ic_activity_collecting, "Parcel", "Order", "Food", "Documents", timePolicy = AT_ONLY, label = "Collect"),
         activity("delivery", "Delivery", R.drawable.ic_activity_delivery, "Parcel", "Food", "Documents", "Drop-off", timePolicy = AT_ONLY),
-        activity("appointment", "Appointment", R.drawable.ic_activity_appointment, "Personal", "Professional", "Service", "Consultation", timePolicy = BOTH),
+        activity("booking", "Booking", R.drawable.ic_activity_appointment, "Personal", "Professional", "Service", "Consultation", timePolicy = BOTH),
         activity("bank", "Banking", R.drawable.ic_activity_bank, "Bank branch", "ATM", "Online banking", timePolicy = BOTH, label = "Bank"),
         activity("post-office", "Post office", R.drawable.ic_activity_post_office, "Posting", "Collecting", "Courier", timePolicy = BOTH),
-        activity("fuel-charge", "Fuel / charge", R.drawable.ic_activity_fuel_charge, "Fuel stop", "EV charging", "Vehicle charging", timePolicy = BOTH),
+        activity("fuel-charge", "Fuel", R.drawable.ic_activity_fuel_charge, "Fuel stop", "EV charging", "Vehicle charging", timePolicy = BOTH),
         activity("queue", "Queuing", R.drawable.ic_activity_queue, "Shop", "Service", "Tickets", "Office", timePolicy = BOTH, label = "Queue"),
         activity("haircut", "Haircut", R.drawable.ic_activity_haircut, "Barber", "Salon", "At home", timePolicy = BOTH)
     )),

@@ -87,6 +87,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -598,7 +599,7 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
                 if (selectedActivityId == "location") {
                     item(key = "location-time", contentType = "time") {
                         SectionLabel("TIME")
-                        Text("Live now", color = Ink, fontSize = 15.sp)
+                        LiveTimeField(onCustom = null, modifier = Modifier.fillMaxWidth())
                     }
                 } else {
                     item(key = "time-label", contentType = "section") { SectionLabel("TIME") }
@@ -1076,8 +1077,9 @@ private fun ActivityGridRow(options: List<ActivityOption>, selectedActivityId: S
                 verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically)) {
                 Icon(painterResource(option.icon), contentDescription = null,
                     tint = if (active) Paper else Ink, modifier = Modifier.size(28.dp))
-                Text(option.label, color = if (active) Paper else Ink, fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
+                Text(option.label, color = if (active) Paper else Ink, fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium, textAlign = TextAlign.Center,
+                    maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
             }
         }
         repeat(4 - options.size) { Spacer(Modifier.weight(1f)) }
@@ -1127,7 +1129,7 @@ private fun ActivityTimeControls(start: Long?, end: Long?, onCustom: () -> Unit,
 
 /** Only this visible clock recomposes each second; its value is never used to create a send. */
 @Composable
-private fun LiveTimeField(onCustom: () -> Unit, modifier: Modifier = Modifier) {
+private fun LiveTimeField(onCustom: (() -> Unit)?, modifier: Modifier = Modifier) {
     var timestamp by remember { mutableStateOf(ActivityTime.now()) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(lifecycle) {
@@ -1139,10 +1141,18 @@ private fun LiveTimeField(onCustom: () -> Unit, modifier: Modifier = Modifier) {
         }
     }
     val time = Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault()).format(LiveTimeFormatter)
-    TimeButton("Live  $time", onCustom, modifier.semantics {
-        contentDescription = "Live current time"
+    val semanticsModifier = modifier.semantics {
+        contentDescription = if (onCustom == null) "Current time" else "Live current time"
         stateDescription = "Uses the time kNupdate is pressed"
-    })
+    }
+    if (onCustom != null) {
+        TimeButton(time, onCustom, semanticsModifier)
+    } else {
+        Box(semanticsModifier.height(48.dp).border(1.dp, Ink), contentAlignment = Alignment.Center) {
+            Text(time, color = Ink, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                letterSpacing = 0.6.sp, maxLines = 1, softWrap = false)
+        }
+    }
 }
 
 @Composable
@@ -1156,7 +1166,8 @@ internal fun ChoiceRow(choices: List<String>, selected: String, onSelect: (Strin
                 .selectable(active, interactionSource = interaction, indication = null,
                     role = Role.RadioButton, onClick = { onSelect(choice) }).padding(12.dp),
                 contentAlignment = Alignment.Center) {
-                Text(choice, color = if (active) Paper else Ink, fontSize = 12.sp, textAlign = TextAlign.Center)
+                Text(choice, color = if (active) Paper else Ink, fontSize = 12.sp, textAlign = TextAlign.Center,
+                    maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
             }
         }
         if (choices.size == 1) Spacer(Modifier.weight(1f))
