@@ -696,7 +696,12 @@ private fun CoordinateMap(fix: Coordinates) {
             setTileSource(TileSourceFactory.MAPNIK)
             setMultiTouchControls(true)
             setBuiltInZoomControls(false)
-            minZoomLevel = 2.0
+            // Do not render repeated copies of the world when the user zooms
+            // out. Fullscreen also stops at a useful world scale so it does
+            // not request a huge, mostly empty tile area.
+            setHorizontalMapRepetitionEnabled(false)
+            setVerticalMapRepetitionEnabled(false)
+            minZoomLevel = if (fullscreen) 4.0 else 2.0
             maxZoomLevel = 20.0
             // Keep the map in the app's restrained black-and-white visual system.
             // Keep the compact map's existing rendering unchanged. The
