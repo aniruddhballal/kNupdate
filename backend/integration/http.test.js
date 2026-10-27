@@ -48,7 +48,9 @@ test("HTTP pairing and targeted delivery never exposes a pending update publicly
     coordinates: { latitude: 12.345678, longitude: -76.54321, accuracyMeters: 24.5, capturedAt: Date.now() } };
   const sent = await request("POST", "/v1/updates", alice, { activity, recipientIds: [bob.id] }, null, key);
   assert.equal(sent.listeners, 1);
-  assert.equal((await pollResult(bobWaiting)).updates[0].id, activity.id);
+  const bobUpdate = (await pollResult(bobWaiting)).updates[0];
+  assert.equal(bobUpdate.id, activity.id);
+  assert.equal(bobUpdate.senderName, "HTTP Alice");
   carolAbort.abort();
   const carolResult = await carolWaiting;
   assert.ok(carolResult.error, "The unselected listener must not receive an update.");

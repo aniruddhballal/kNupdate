@@ -69,6 +69,8 @@ The activity catalog/grid and exact-time controls were first built as **1.2.0 (c
 
 **1.7.1 (code 29)** adds explicit leaf/tree delivery: leaf sends to selected mutually paired devices, while tree sends to every other active authenticated listener. The location beacon remains an independent coordinate-inclusion toggle. Pairing management moves to its own navigation screen and the active-listener handshake view is compacted. This feature release requires the updated backend and APK.
 
+**1.7.2 (code 30)** attaches the authenticated sender's display name to delivered activities in both leaf and tree modes. Inbox/history entries and incoming notifications show the sender name. The name is server-attached from the registered device identity and is not accepted from the activity payload.
+
 Every normal app APK/AAB build reserves the next patch version and increments versionCode once per Gradle invocation. Debug, preview and release variants in the same invocation share that reservation. This includes full `build`, `assemble`, `bundle`, `package` and `install` artifact tasks, including Android Studio's normal `:app:assembleDebug` invocation. Use complete task names rather than abbreviations.
 
 ```powershell

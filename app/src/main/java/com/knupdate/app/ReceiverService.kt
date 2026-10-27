@@ -193,7 +193,7 @@ class ReceiverService : Service() {
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         getSystemService(NotificationManager::class.java).notify(record.id.hashCode(),
             NotificationCompat.Builder(this, UPDATE_CHANNEL).setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle(record.title).setContentText(record.body)
+                .setContentTitle(record.senderName?.let { "$it · ${record.title}" } ?: record.title).setContentText(record.body)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(listOfNotNull(record.body,
                     record.coordinates?.text(), record.timeText()).joinToString("\n")))
                 .setContentIntent(openApp(this)).setAutoCancel(true).build())

@@ -277,7 +277,9 @@ test("paired device identities restrict delivery to the selected device", async 
   const message = activity();
   const sent = relay.publish({ activity: message, recipientIds: [bob.id] }, aliceSession, randomUUID(), alice.id, alice.token);
   assert.equal(sent.listeners, 1);
-  assert.equal((await bobPoll)[0].id, message.id);
+  const bobUpdate = (await bobPoll)[0];
+  assert.equal(bobUpdate.id, message.id);
+  assert.equal(bobUpdate.senderName, "Alice");
   assert.deepEqual(await carolPoll, []);
   relay.acknowledge(bobSession, [message.id], bob.id, bob.token);
   assert.deepEqual(relay.publicUpdates(), []);
@@ -300,8 +302,12 @@ test("tree delivery reaches every other active listener, including unpaired devi
   const sent = relay.publish({ activity: message, mode: "tree" }, aliceSession, randomUUID(), alice.id, alice.token);
   assert.equal(sent.mode, "tree");
   assert.equal(sent.listeners, 2);
-  assert.deepEqual((await bobPoll)[0].id, message.id);
-  assert.deepEqual((await carolPoll)[0].id, message.id);
+  const bobUpdate = (await bobPoll)[0];
+  const carolUpdate = (await carolPoll)[0];
+  assert.deepEqual(bobUpdate.id, message.id);
+  assert.deepEqual(carolUpdate.id, message.id);
+  assert.equal(bobUpdate.senderName, "Alice");
+  assert.equal(carolUpdate.senderName, "Alice");
   assert.deepEqual(await alicePoll, []);
   relay.close(aliceSession, alice.id, alice.token);
   relay.close(bobSession, bob.id, bob.token);

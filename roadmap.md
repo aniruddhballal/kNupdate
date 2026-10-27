@@ -12,6 +12,7 @@
 - Recipient selection and server-side targeted delivery to selected paired devices.
 - Explicit leaf/tree delivery: selected paired recipients or every other active authenticated listener.
 - Separate pairing navigation screen and compact active-listener view.
+- Authenticated sender names shown on delivered Inbox entries and notifications in both delivery modes.
 - Activity payloads held in memory only; no cloud database or file history.
 - Long polling, ephemeral listener sessions, multiple simultaneous recipients and updates.
 - Local commit before acknowledgement; duplicate suppression.
