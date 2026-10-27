@@ -144,7 +144,7 @@ export default {
     const path = new URL(request.url).pathname;
     if (request.method === "GET" && path === "/health") {
       return json({ service: "knupdate-relay", protocol: 2, ttlMs: TTL_MS, pollMs: POLL_MS,
-        features: ["device-identities", "pairing", "targeted-delivery", "listener-directory", "listener-receipts"] });
+        features: ["device-identities", "pairing", "targeted-delivery", "tree-broadcast", "listener-directory", "listener-receipts"] });
     }
     if (!path.startsWith("/v1/")) return json({ error: "Not found." }, 404);
     return env.RELAY.get(env.RELAY.idFromName("private-sharing-v1")).fetch(request);

@@ -67,6 +67,8 @@ The activity catalog/grid and exact-time controls were first built as **1.2.0 (c
 
 **1.7.0 (code 28)** adds anonymous persistent device identities, short-lived mutual pairing invites, paired-device management, authenticated relay requests, and explicit selected-recipient delivery. The relay persists only identity and pairing metadata; activity payloads remain ephemeral. This feature release requires the updated backend and APK. End-to-end encryption is still a later feature.
 
+**1.7.1 (code 29)** adds explicit leaf/tree delivery: leaf sends to selected mutually paired devices, while tree sends to every other active authenticated listener. The location beacon remains an independent coordinate-inclusion toggle. Pairing management moves to its own navigation screen and the active-listener handshake view is compacted. This feature release requires the updated backend and APK.
+
 Every normal app APK/AAB build reserves the next patch version and increments versionCode once per Gradle invocation. Debug, preview and release variants in the same invocation share that reservation. This includes full `build`, `assemble`, `bundle`, `package` and `install` artifact tasks, including Android Studio's normal `:app:assembleDebug` invocation. Use complete task names rather than abbreviations.
 
 ```powershell

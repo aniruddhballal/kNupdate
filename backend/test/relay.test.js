@@ -286,6 +286,28 @@ test("paired device identities restrict delivery to the selected device", async 
   relay.close(carolSession, carol.id, carol.token);
 });
 
+test("tree delivery reaches every other active listener, including unpaired devices", async () => {
+  const relay = new Relay({ pollMs: 5 });
+  const alice = { id: randomUUID(), token: randomUUID() };
+  const bob = { id: randomUUID(), token: randomUUID() };
+  const carol = { id: randomUUID(), token: randomUUID() };
+  for (const [device, name] of [[alice, "Alice"], [bob, "Bob"], [carol, "Carol"]]) relay.registerDevice(device.id, device.token, name);
+  const aliceSession = randomUUID(), bobSession = randomUUID(), carolSession = randomUUID();
+  const alicePoll = relay.poll(aliceSession, undefined, "Alice", alice.id, alice.token);
+  const bobPoll = relay.poll(bobSession, undefined, "Bob", bob.id, bob.token);
+  const carolPoll = relay.poll(carolSession, undefined, "Carol", carol.id, carol.token);
+  const message = activity();
+  const sent = relay.publish({ activity: message, mode: "tree" }, aliceSession, randomUUID(), alice.id, alice.token);
+  assert.equal(sent.mode, "tree");
+  assert.equal(sent.listeners, 2);
+  assert.deepEqual((await bobPoll)[0].id, message.id);
+  assert.deepEqual((await carolPoll)[0].id, message.id);
+  assert.deepEqual(await alicePoll, []);
+  relay.close(aliceSession, alice.id, alice.token);
+  relay.close(bobSession, bob.id, bob.token);
+  relay.close(carolSession, carol.id, carol.token);
+});
+
 test("pairing metadata survives a relay snapshot and device credentials are required", () => {
   const relay = new Relay();
   const alice = { id: randomUUID(), token: randomUUID() };

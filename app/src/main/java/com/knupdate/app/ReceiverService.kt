@@ -136,7 +136,7 @@ class ReceiverService : Service() {
                             registered = true
                         }
                         val session = ReceiverStatus.session ?: break
-                        setStatus("Listening for paired kNupdates")
+                        setStatus("Listening for kNupdates")
                         if (!ReceiverStatus.isCurrent(run)) break
                         val updates = client.poll(session, sharedName)
                         if (!ReceiverStatus.isCurrent(run) || session != ReceiverStatus.session) continue

@@ -42,6 +42,7 @@ class LocationSendService : Service() {
         val record = ActivityRecord(id = intent.getStringExtra("id")!!, title = intent.getStringExtra("title")!!,
             body = intent.getStringExtra("body")!!, startAt = intent.getLongExtra("at", 0), endAt = null,
             timeZone = intent.getStringExtra("zone")!!, status = "scheduled",
+            deliveryMode = intent.getStringExtra("deliveryMode") ?: DeliveryMode.LEAF.wireValue,
             recipientIds = intent.getStringArrayListExtra("recipientIds"))
         try {
             check(LocationCapture.permitted(this) && LocationCapture.enabled(this))
@@ -82,7 +83,8 @@ class LocationSendService : Service() {
                 posting = true
                 val client = RelayClient.app(this@LocationSendService)
                 client.register(DeviceIdentity.displayName(this@LocationSendService))
-                val result = client.publish(record.copy(coordinates = fix), ReceiverStatus.session, record.recipientIds.orEmpty())
+                val result = client.publish(record.copy(coordinates = fix), ReceiverStatus.session,
+                    record.deliveryMode, record.recipientIds)
                 withContext(Dispatchers.IO) { store.recordAcceptance(record.id, result) }
                 ReceiptCoordinator.track(this@LocationSendService, record.id)
                 completed = true
@@ -161,6 +163,7 @@ class LocationSendService : Service() {
                 ContextCompat.startForegroundService(context, Intent(context, LocationSendService::class.java)
                     .putExtra("id", record.id).putExtra("title", record.title).putExtra("body", record.body)
                     .putExtra("at", record.startAt).putExtra("zone", record.timeZone)
+                    .putExtra("deliveryMode", record.deliveryMode)
                     .putStringArrayListExtra("recipientIds", ArrayList(record.recipientIds.orEmpty())))
             } catch (error: Exception) { mutableActive.value = false; throw error }
             return true

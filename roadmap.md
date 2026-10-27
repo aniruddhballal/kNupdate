@@ -10,6 +10,8 @@
 - Authenticated relay using Cloudflare Workers and one Durable Object.
 - Anonymous persistent device identities with short-lived pairing invites and mutual pairing metadata.
 - Recipient selection and server-side targeted delivery to selected paired devices.
+- Explicit leaf/tree delivery: selected paired recipients or every other active authenticated listener.
+- Separate pairing navigation screen and compact active-listener view.
 - Activity payloads held in memory only; no cloud database or file history.
 - Long polling, ephemeral listener sessions, multiple simultaneous recipients and updates.
 - Local commit before acknowledgement; duplicate suppression.

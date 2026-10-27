@@ -57,11 +57,16 @@ class RelayClient(private val baseUrl: String, private val credentials: DeviceCr
         }
     }
     suspend fun unpair(id: String) = request("DELETE", "/v1/peers/$id")
-    suspend fun publish(record: ActivityRecord, session: String?, recipientIds: List<String>? = null): JSONObject {
-        val body = if (recipientIds == null) record.wireJson()
-        else JSONObject().put("activity", record.wireJson()).put("recipientIds", JSONArray(recipientIds))
+    suspend fun publish(record: ActivityRecord, session: String?, deliveryMode: String = record.deliveryMode,
+        recipientIds: List<String>? = record.recipientIds): JSONObject {
+        require(deliveryMode == DeliveryMode.LEAF.wireValue || deliveryMode == DeliveryMode.TREE.wireValue)
+        val body = JSONObject().put("activity", record.wireJson()).put("mode", deliveryMode).also { json ->
+            if (deliveryMode == DeliveryMode.LEAF.wireValue) json.put("recipientIds", JSONArray(recipientIds ?: emptyList<String>()))
+        }
         return request("POST", "/v1/updates", body, session, receiptKey = record.receiptKey)
     }
+    suspend fun publish(record: ActivityRecord, session: String?, recipientIds: List<String>): JSONObject =
+        publish(record, session, DeliveryMode.LEAF.wireValue, recipientIds)
     suspend fun poll(session: String, name: String? = null): JSONArray = request("GET", "/v1/poll", session = session, polling = true, listenerName = name).getJSONArray("updates")
     suspend fun listeners(session: String?) = request("GET", "/v1/listeners", session = session)
     suspend fun receipts(id: String, key: String, revision: Int) = request("GET", "/v1/receipts/$id?after=$revision", receiptKey = key, longPolling = true)

@@ -304,22 +304,28 @@ export class Relay {
   publish(input, senderSession, receiptKey = null, senderDeviceId = null, token = null) {
     const targeted = input && Object.hasOwn(input, "activity");
     const activity = validateActivity(targeted ? input.activity : input, this.now());
-    const recipientIds = targeted ? validateRecipientIds(input.recipientIds, { allowEmpty: true }) : null;
+    const mode = targeted ? (input.mode ?? "leaf") : "tree";
+    if (mode !== "leaf" && mode !== "tree") throw new HttpError(400, "Choose leaf or tree delivery.");
+    const recipientIds = mode === "leaf" ? validateRecipientIds(input.recipientIds, { allowEmpty: false }) : null;
+    if (targeted && mode === "tree" && Object.hasOwn(input, "recipientIds")) {
+      throw new HttpError(400, "Tree delivery cannot include recipient devices.");
+    }
     let sender = null;
     if (senderDeviceId !== null) {
       sender = this.authenticate(senderDeviceId, token);
       if (senderSession) { validateSession(senderSession); this.assertSessionOwner(senderSession, sender.id); }
-      if (recipientIds === null) throw new HttpError(400, "A recipient list is required for private delivery.");
-      if (recipientIds.includes(sender.id)) throw new HttpError(400, "The sender cannot be a recipient.");
-      for (const recipient of recipientIds) {
-        if (!sender.device.paired.has(recipient)) throw new HttpError(403, "Every recipient must be paired with the sender.");
+      if (mode === "leaf") {
+        if (recipientIds.includes(sender.id)) throw new HttpError(400, "The sender cannot be a recipient.");
+        for (const recipient of recipientIds) {
+          if (!sender.device.paired.has(recipient)) throw new HttpError(403, "Every recipient must be paired with the sender.");
+        }
       }
     } else if (senderSession) validateSession(senderSession);
     if (receiptKey !== null) validateSession(receiptKey);
     this.prune();
     const previous = this.records.get(activity.id);
     const requestedRecipients = recipientIds ? [...recipientIds].sort() : null;
-    const inputFingerprint = JSON.stringify({ activity, recipientIds: requestedRecipients });
+    const inputFingerprint = JSON.stringify({ activity, mode, recipientIds: requestedRecipients });
     if (previous) {
       if (previous.fingerprint !== inputFingerprint || previous.receiptKey !== receiptKey) throw new HttpError(409, "Activity ID already in use.");
       return structuredClone(previous.acceptance);
@@ -330,17 +336,17 @@ export class Relay {
     const eligible = [...this.sessions.keys()].filter(session => {
       if (session === senderSession) return false;
       const sessionDevice = this.sessionDevices.get(session);
-      return recipientIds === null ? true : recipientIds.includes(sessionDevice);
+      return mode === "tree" ? true : recipientIds.includes(sessionDevice);
     });
     const expiresAt = this.now() + TTL_MS;
     const snapshot = eligible.map(session => {
       const device = this.devices.get(this.sessionDevices.get(session));
-      return { id: crypto.randomUUID(), name: recipientIds ? (device?.name ?? null) : this.listenerNames.get(session) ?? null, confirmedAt: null };
+      return { id: crypto.randomUUID(), name: mode === "leaf" ? (device?.name ?? null) : this.listenerNames.get(session) ?? null, confirmedAt: null };
     });
-    const acceptance = { accepted: true, listeners: eligible.length, recipients: snapshot,
+    const acceptance = { accepted: true, mode, listeners: eligible.length, recipients: snapshot,
       expiresAt: eligible.length ? expiresAt : null, receiptExpiresAt: receiptKey !== null && eligible.length ? expiresAt : null };
     if (eligible.length) {
-      const record = { activity, pending: eligible, expiresAt, receiptKey,
+      const record = { activity, mode, pending: eligible, expiresAt, receiptKey,
         fingerprint: inputFingerprint, acceptance, receiptIds: new Map(eligible.map((session, index) => [session, snapshot[index].id])) };
       if (receiptKey !== null) this.receipts.set(activity.id, {
         key: receiptKey, senderDeviceId: sender?.id ?? null, expiresAt, revision: 0, recipients: structuredClone(snapshot)

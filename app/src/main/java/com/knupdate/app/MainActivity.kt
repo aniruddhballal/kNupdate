@@ -273,11 +273,33 @@ private fun LocationBeaconToggle(active: Boolean, onChange: () -> Unit) {
 }
 
 @Composable
+private fun DeliveryScopeToggle(mode: DeliveryMode, onChange: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(48.dp)
+            .semantics {
+                contentDescription = "Delivery scope"
+                stateDescription = if (mode == DeliveryMode.TREE) "Tree: all listeners" else "Leaf: paired devices only"
+            }
+            .toggleable(value = mode == DeliveryMode.TREE, role = Role.Switch, onValueChange = { onChange() }),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            painter = painterResource(if (mode == DeliveryMode.TREE) R.drawable.ic_delivery_tree else R.drawable.ic_delivery_leaf),
+            contentDescription = null,
+            tint = Ink,
+            modifier = Modifier.size(26.dp)
+        )
+    }
+}
+
+@Composable
 private fun IconNavigation(selected: String, onSelect: (String) -> Unit) {
     val items = listOf(
         Triple("New", "New activity", R.drawable.ic_add),
         Triple("Sent", "Sent activities", R.drawable.ic_sent),
-        Triple("Inbox", "Inbox", R.drawable.ic_postbox)
+        Triple("Inbox", "Inbox", R.drawable.ic_postbox),
+        Triple("Pairing", "Pairing", R.drawable.ic_activity_meeting_people)
     )
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceEvenly) {
@@ -384,6 +406,7 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
     var pendingEndAt by rememberSaveable { mutableStateOf<Long?>(null) }
     var locationBeaconRequested by remember { mutableStateOf(LocationBeacon.requested(context)) }
     var locationBeaconActive by remember { mutableStateOf(LocationBeacon.active(context)) }
+    var deliveryMode by remember { mutableStateOf(DeliveryScope.get(context)) }
     val selectedActivity = ACTIVITY_OPTIONS.firstOrNull { it.id == selectedActivityId } ?: ACTIVITY_OPTIONS.first()
     val selectedGroup = ACTIVITY_GROUPS.firstOrNull { it.id == selectedGroupId } ?: ACTIVITY_GROUPS.first()
     val coordinateMode = selectedActivityId == "location"
@@ -483,7 +506,7 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
     }
 
     LaunchedEffect(Unit) {
-        if (tab !in listOf("New", "Sent", "Inbox")) tab = "New"
+        if (tab !in listOf("New", "Sent", "Inbox", "Pairing")) tab = "New"
         try { withContext(Dispatchers.IO) { store.load() }; ready = true; ReceiptCoordinator.resume(context) }
         catch (_: Exception) { loadError = "History unavailable." }
     }
@@ -495,6 +518,26 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
     }
     LaunchedEffect(lastSent?.status) {
         if (lastSent?.status == "sent") { updateButtonSuccess = true; delay(850); updateButtonSuccess = false }
+    }
+
+    fun dispatchUpdate(recipientIds: List<String>) {
+        val startAt = pendingStartAt ?: return
+        val update = ActivityRecord(title = selectedActivity.title, body = selectedBody.orEmpty(),
+            startAt = startAt, endAt = if (coordinateMode) null else pendingEndAt,
+            status = if (coordinateMode) "scheduled" else "sending",
+            deliveryMode = deliveryMode.wireValue,
+            recipientIds = recipientIds.takeIf { deliveryMode == DeliveryMode.LEAF })
+        lastSentId = update.id
+        timeError = null
+        showRecipientSelection = false
+        try {
+            if (coordinateMode) {
+                if (!LocationSendService.schedule(context, update)) timeError = "A location send is already pending."
+            } else SendCoordinator.send(context, update, requireCoordinates = locationBeaconRequested)
+        } catch (_: Exception) {
+            timeError = if (coordinateMode) "Could not start location sharing. Keep the app open and check location permission."
+                else "Could not start sending."
+        }
     }
 
     fun saveUpdate() {
@@ -535,30 +578,17 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
                 return
             }
         }
-        showRecipientSelection = true
-    }
-
-    fun dispatchUpdate(recipientIds: List<String>) {
-        val startAt = pendingStartAt ?: return
-        val update = ActivityRecord(title = selectedActivity.title, body = selectedBody.orEmpty(),
-            startAt = startAt, endAt = if (coordinateMode) null else pendingEndAt,
-            status = if (coordinateMode) "scheduled" else "sending", recipientIds = recipientIds)
-        lastSentId = update.id
-        timeError = null
-        showRecipientSelection = false
-        try {
-            if (coordinateMode) {
-                if (!LocationSendService.schedule(context, update)) timeError = "A location send is already pending."
-            } else SendCoordinator.send(context, update, recipientIds, requireCoordinates = locationBeaconRequested)
-        } catch (_: Exception) {
-            timeError = if (coordinateMode) "Could not start location sharing. Keep the app open and check location permission."
-                else "Could not start sending."
-        }
+        if (deliveryMode == DeliveryMode.LEAF) showRecipientSelection = true else dispatchUpdate(emptyList())
     }
 
     Column(modifier = Modifier.fillMaxSize().background(Paper).statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp)) {
         ScreenHeader {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                DeliveryScopeToggle(deliveryMode) {
+                    deliveryMode = if (deliveryMode == DeliveryMode.TREE) DeliveryMode.LEAF else DeliveryMode.TREE
+                    DeliveryScope.set(context, deliveryMode)
+                    Toast.makeText(context, if (deliveryMode == DeliveryMode.TREE) "Tree: all listeners" else "Leaf: paired devices only", Toast.LENGTH_SHORT).show()
+                }
                 Box(Modifier.size(48.dp).semantics { contentDescription = "Active listeners" }
                     .clickable(role = Role.Button) { showListeners = true }, contentAlignment = Alignment.Center) {
                     Icon(painterResource(R.drawable.ic_activity_meeting_people), null, tint = Ink, modifier = Modifier.size(24.dp))
@@ -578,6 +608,7 @@ private fun LocalActivityScreen(showInbox: Boolean, onInboxOpened: () -> Unit) {
         }
         locationError?.let { Text(it, color = Color(0xFFB3261E), fontSize = 13.sp) }
         when (tab) {
+            "Pairing" -> PairingScreen()
             "Sent", "Inbox" -> HistoryList(updates.filter { it.direction == if (tab == "Sent") "sent" else "received" })
             else -> LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f).testTag("activity-composer"),
                 contentPadding = PaddingValues(bottom = 28.dp),
@@ -659,7 +690,7 @@ private fun deliveryText(record: ActivityRecord): String = when (record.status) 
     "cancelled" -> "Cancelled · not sent"
     "missed" -> "Location send interrupted · not sent"
     "sending" -> "Sending"
-    "sent" -> if (record.listeners == 0) "No listeners" else "Sent · ${record.listeners ?: "?"} listening" +
+    "sent" -> if (record.listeners == 0) "No listeners" else "${if (record.deliveryMode == DeliveryMode.TREE.wireValue) "Tree" else "Leaf"} · ${record.listeners ?: "?"} listening" +
         (record.recipients?.let { " · ${it.count { recipient -> recipient.confirmedAt != null }} confirmed" } ?: "")
     "uncertain" -> "Unconfirmed"
     "received" -> "Received"

@@ -3,6 +3,7 @@ package com.knupdate.app
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -66,14 +67,9 @@ private data class ActiveListener(val name: String?, val self: Boolean)
 @Composable
 internal fun ListenerDirectoryDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var listeners by remember { mutableStateOf<List<ActiveListener>>(emptyList()) }
-    var peers by remember { mutableStateOf<List<PairedDevice>>(emptyList()) }
     var asOf by remember { mutableStateOf<Long?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
-    var pairingMessage by remember { mutableStateOf<String?>(null) }
-    var inviteCode by rememberSaveable { mutableStateOf<String?>(null) }
-    var enteredCode by rememberSaveable { mutableStateOf("") }
     var refresh by remember { mutableStateOf(0) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(lifecycle, refresh) {
@@ -82,7 +78,6 @@ internal fun ListenerDirectoryDialog(onDismiss: () -> Unit) {
                 try {
                     val client = RelayClient.app(context)
                     client.register(DeviceIdentity.displayName(context))
-                    peers = client.peers()
                     val result = client.listeners(ReceiverStatus.session)
                     val rows = result.getJSONArray("listeners")
                     require(rows.length() <= 100)
@@ -104,53 +99,6 @@ internal fun ListenerDirectoryDialog(onDismiss: () -> Unit) {
         }
     }
     ListenerDialog("listener-directory-dialog", onDismiss) {
-        Text("Private connections", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.Black)
-        Text("Pair devices first. Names are labels; delivery uses paired device identities.", fontSize = 13.sp, color = Color(0xff555555))
-        BlackButton("CREATE INVITE", onClick = {
-            scope.launch {
-                try {
-                    val client = RelayClient.app(context)
-                    client.register(DeviceIdentity.displayName(context))
-                    inviteCode = client.invite().getString("code")
-                    pairingMessage = "Share this code with the other device. It expires in 10 minutes."
-                } catch (_: Exception) { pairingMessage = "Could not create an invite." }
-            }
-        }, modifier = Modifier.fillMaxWidth())
-        TimeButton("REFRESH", { refresh++ }, Modifier.fillMaxWidth())
-        inviteCode?.let { code ->
-            Text(code, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.Black)
-        }
-        LocalTextField(enteredCode, { enteredCode = it.uppercase() }, "Enter invite code", onDone = {})
-        BlackButton("PAIR DEVICE", enabled = enteredCode.trim().length == 10, onClick = {
-            scope.launch {
-                try {
-                    val client = RelayClient.app(context)
-                    client.register(DeviceIdentity.displayName(context))
-                    client.acceptInvite(enteredCode.trim())
-                    enteredCode = ""
-                    pairingMessage = "Devices paired."
-                    peers = client.peers()
-                } catch (_: Exception) { pairingMessage = "Could not pair. Check the code and try again." }
-            }
-        }, modifier = Modifier.fillMaxWidth())
-        pairingMessage?.let { Text(it, color = Color(0xff555555), fontSize = 12.sp) }
-        Text("Paired devices", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.Black)
-        if (peers.isEmpty()) Text("No paired devices", color = Color(0xff555555), fontSize = 13.sp)
-        peers.forEach { peer ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(peer.label(), color = Color.Black, fontSize = 15.sp)
-                TimeButton("REMOVE", {
-                    scope.launch {
-                        runCatching {
-                            val client = RelayClient.app(context)
-                            client.register(DeviceIdentity.displayName(context))
-                            client.unpair(peer.id)
-                            peers = client.peers()
-                        }
-                    }
-                })
-            }
-        }
         Text("Active listeners", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.Black)
         Text("Recently active listeners. Status is approximate.", fontSize = 13.sp, color = Color(0xff555555))
         error?.let { Text(it, color = Color(0xffb3261e), fontSize = 13.sp) }
@@ -167,6 +115,76 @@ internal fun ListenerDirectoryDialog(onDismiss: () -> Unit) {
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             TimeButton("CLOSE", onDismiss, Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+internal fun ColumnScope.PairingScreen() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var peers by remember { mutableStateOf<List<PairedDevice>>(emptyList()) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var pairingMessage by remember { mutableStateOf<String?>(null) }
+    var inviteCode by rememberSaveable { mutableStateOf<String?>(null) }
+    var enteredCode by rememberSaveable { mutableStateOf("") }
+    var refresh by remember { mutableStateOf(0) }
+
+    LaunchedEffect(refresh) {
+        try {
+            val client = RelayClient.app(context)
+            client.register(DeviceIdentity.displayName(context))
+            peers = client.peers()
+            error = null
+        } catch (_: Exception) { error = "Could not refresh paired devices." }
+    }
+    Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).testTag("pairing-screen"),
+        verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text("Pairing", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+        Text("Pair devices for leaf delivery. Tree delivery intentionally reaches every active listener.", fontSize = 13.sp, color = Color(0xff555555))
+        BlackButton("CREATE INVITE", onClick = {
+            scope.launch {
+                try {
+                    val client = RelayClient.app(context)
+                    client.register(DeviceIdentity.displayName(context))
+                    inviteCode = client.invite().getString("code")
+                    pairingMessage = "Share this code with the other device. It expires in 10 minutes."
+                } catch (_: Exception) { pairingMessage = "Could not create an invite." }
+            }
+        }, modifier = Modifier.fillMaxWidth())
+        TimeButton("REFRESH", { refresh++ }, Modifier.fillMaxWidth())
+        inviteCode?.let { code -> Text(code, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.Black) }
+        LocalTextField(enteredCode, { enteredCode = it.uppercase() }, "Enter invite code", onDone = {})
+        BlackButton("PAIR DEVICE", enabled = enteredCode.trim().length == 10, onClick = {
+            scope.launch {
+                try {
+                    val client = RelayClient.app(context)
+                    client.register(DeviceIdentity.displayName(context))
+                    client.acceptInvite(enteredCode.trim())
+                    enteredCode = ""
+                    pairingMessage = "Devices paired."
+                    peers = client.peers()
+                } catch (_: Exception) { pairingMessage = "Could not pair. Check the code and try again." }
+            }
+        }, modifier = Modifier.fillMaxWidth())
+        pairingMessage?.let { Text(it, color = Color(0xff555555), fontSize = 12.sp) }
+        Text("Paired devices", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+        error?.let { Text(it, color = Color(0xffb3261e), fontSize = 13.sp) }
+        if (peers.isEmpty() && error == null) Text("No paired devices", color = Color(0xff555555), fontSize = 13.sp)
+        peers.forEach { peer ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(peer.label(), color = Color.Black, fontSize = 15.sp)
+                TimeButton("REMOVE", {
+                    scope.launch {
+                        runCatching {
+                            val client = RelayClient.app(context)
+                            client.register(DeviceIdentity.displayName(context))
+                            client.unpair(peer.id)
+                            peers = client.peers()
+                        }.onFailure { pairingMessage = "Could not remove this pairing." }
+                    }
+                })
+            }
         }
     }
 }

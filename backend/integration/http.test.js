@@ -68,3 +68,23 @@ test("HTTP pairing and targeted delivery never exposes a pending update publicly
     ]);
   });
 });
+
+test("HTTP tree delivery reaches all active listeners without requiring pairing", { timeout: 40_000 }, async t => {
+  const alice = device("Tree Alice"), bob = device("Tree Bob"), carol = device("Tree Carol");
+  for (const value of [alice, bob, carol]) await request("POST", "/v1/devices/register", value, { deviceId: value.id, deviceToken: value.token, name: value.name });
+  const bobSession = randomUUID(), carolSession = randomUUID();
+  const bobWaiting = poll(bob, bobSession);
+  const carolWaiting = poll(carol, carolSession);
+  const activity = { ...message(), title: "Tree update", body: "Visible to all active listeners" };
+  const sent = await request("POST", "/v1/updates", alice, { activity, mode: "tree" });
+  assert.equal(sent.mode, "tree");
+  assert.equal(sent.listeners, 2);
+  assert.equal((await pollResult(bobWaiting)).updates[0].id, activity.id);
+  assert.equal((await pollResult(carolWaiting)).updates[0].id, activity.id);
+  t.after(async () => {
+    await Promise.allSettled([
+      fetch(base + "/v1/poll", { method: "DELETE", headers: headers(bob, bobSession) }),
+      fetch(base + "/v1/poll", { method: "DELETE", headers: headers(carol, carolSession) })
+    ]);
+  });
+});
